@@ -16,8 +16,7 @@ WITH t2 AS
                           ELSE 0
                       END AS voldialysis -- cellvaluenumeric is always POSITIVE , DIALYSIStotal is NEGATIVE for fluid removal from RRT
 -- distinct patientunitstayid, intakeoutputoffset, intaketotal, outputtotal, nettotal
-FROM eicu_crd_v2.intakeoutput -- where patientunitstayid in (2643615,2645216,2645408,2645540,2645654,2645683,2646201,2676623,2695938,2699938,2700094,2721481,2724239,2726091,2736158,2737146,2737161,2740998)
-
+FROM eicu_crd_v2.intakeoutput 
       WHERE cellpath IN ('flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Urine',
                          'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Continuous infusion meds',
                          'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS ',

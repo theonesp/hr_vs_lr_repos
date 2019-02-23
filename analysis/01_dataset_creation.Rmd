@@ -15,54 +15,63 @@ library(dplyr)
 ```
 
 
+# Creating useful funtions
+
+```{r}
+# function avoiding add the connection data in each iteration
+run_query<-function(query){
+query_output<-dbGetQuery(con,query)
+  return(query_output)
+}
+
+# function for reading sql files
+getSQL <- function(filepath){
+  con = file(filepath, "r")
+  sql.string <- ""
+
+  while (TRUE){
+    line <- readLines(con, n = 1)
+
+    if ( length(line) == 0 ){
+      break
+    }
+
+    line <- gsub("\\t", " ", line)
+
+    if(grepl("--",line) == TRUE){
+      line <- paste(sub("--","/*",line),"*/")
+    }
+
+    sql.string <- paste(sql.string, line)
+  }
+
+  close(con)
+  return(sql.string)
+}
+```
+
+
 ##Patients developing AKI during ICU stay
 
 ### Data extraction
 
 Tables needed for calculating AKI stage.
 
-Add this to all queries
-ROW_NUMBER() OVER (PARTITION BY lab.patientunitstayid
-                                                                  ORDER BY lab.labresultoffset ASC) AS POSITION
-                                                                  WHERE labresultoffset BETWEEN AND 1440
-
 #### Chronic patients with AKI receiving rrt
 
 (they already had AKI before ICU admin)
-```{r}
-chronicAKI<-dbGetQuery(con," 
-SELECT DISTINCT treatment.patientunitstayid
-   FROM treatment
-   WHERE Lower(treatment.treatmentstring) LIKE ANY ('{%rrt%,%dialysis%,%ultrafiltration%,%cavhd%,%cvvh%,%sled%}')
-     AND Lower(treatment.treatmentstring) LIKE '%chronic%'
-   GROUP BY patientunitstayid
-   ORDER BY patientunitstayid ASC
-")
 
+```{r}
+
+chronicAKI<-run_query(getSQL('sql/aki/chronicAKI.sql'))
 ```
 
 #### Baseline Creatinine
+
 first available value between -12 and +12h from admission [VER 25/01/17]
 
 ```{r}
-baseline_creat<-dbGetQuery(con," 
-WITH tempo AS
-  ( SELECT patientunitstayid,
-           labname,
-           labresultoffset,
-           labresult,
-           ROW_NUMBER() OVER (PARTITION BY patientunitstayid, labname ORDER BY labresultoffset ASC) AS POSITION
-   FROM lab
-   WHERE ((labname) = 'creatinine')
-     AND labresultoffset BETWEEN -720 AND 720 -- first creat available value between -12 and +12h from admission 
-     ORDER BY patientunitstayid, labresultoffset )
-SELECT patientunitstayid,
-       max(CASE WHEN (labname) = 'creatinine' AND POSITION =1 THEN labresult ELSE NULL END) AS creat1,
-       max(CASE WHEN (labname) = 'creatinine' AND POSITION =1 THEN labresultoffset ELSE NULL END) AS creat1offset
-FROM tempo
-GROUP BY patientunitstayid
-ORDER BY patientunitstayid
-")
+baseline_creat<-run_query(getSQL('sql/aki/baseline_creat.sql'))
 ```
 
 #### Peak creatinine within 48h
@@ -70,27 +79,7 @@ ORDER BY patientunitstayid
 Peak creatinine within first 48h + time from admission to peak creatinine within first 48h
 
 ```{r}
-peakcreat48h<-dbGetQuery(con,"WITH peakcr AS
-  (SELECT patientunitstayid,
-          labresultoffset AS peakcreat48h_offset,
-          labresult AS peakcreat48h,
-          Row_number() OVER (PARTITION BY patientunitstayid
-                             ORDER BY lab.labresult DESC) AS POSITION
-   FROM lab
-   WHERE labname LIKE 'creatinine%'
-     AND labresultoffset >= 0
-     AND labresultoffset <= (48 * 60) --Within 48hrs
-
-   GROUP BY patientunitstayid,
-            labresultoffset,
-            labresult
-   ORDER BY patientunitstayid,
-            labresultoffset)
-SELECT patientunitstayid
-, peakcreat48h_offset
-, peakcreat48h
-FROM peakcr
-WHERE POSITION = 1")
+peakcreat48h<-run_query(getSQL('sql/aki/peakcreat48h.sql'))
 ```
 
 #### Peak creatinine within first 7 days
@@ -98,41 +87,12 @@ WHERE POSITION = 1")
 Peak creatinine within first 7 days + time from admission to peak creatinine in 7 days + time from peak creatinine in 7 days to ICU discharge
 
 ```{r}
-peakcreat7days<-dbGetQuery(con," 
-WITH peakcr 
-     AS (SELECT * 
-         FROM   (SELECT patientunitstayid, 
-                        labresultoffset AS peakcreat7d_offset, 
-                        labresult AS peakcreat7d, 
-                        Row_number() 
-                          OVER ( 
-                            partition BY patientunitstayid 
-                            ORDER BY lab.labresult DESC) AS position 
-                 FROM   lab 
-                 WHERE  labname LIKE 'creatinine%' 
-                        AND labresultoffset >= 0 
-                        AND labresultoffset <= 10080 
-                 GROUP  BY patientunitstayid, 
-                           labresultoffset, 
-                           labresult 
-                 ORDER  BY patientunitstayid, 
-                           labresultoffset) AS temp 
-         WHERE  position = 1) 
-SELECT pt.patientunitstayid, 
-       peakcreat7d, 
-       peakcreat7d_offset, 
-       ( pt.unitdischargeoffset - peakcreat7d_offset ) AS 
-       peakcreat7d_to_discharge_offsetgap 
-FROM   patient pt 
-       LEFT OUTER JOIN peakcr 
-                    ON peakcr.patientunitstayid = pt.patientunitstayid 
-ORDER  BY pt.patientunitstayid 
-")
+peakcreat7days<-run_query(getSQL('sql/aki/peakcreat7days.sql'))
 ```
 
 
 
-###Dataset creation
+### AKI Dataset creation
 
 ```{r}
 library(dplyr)
@@ -245,34 +205,7 @@ Then it selects the first rrt between treatment and intakeoutput per patient.
 
 ```{r}
 # query the data from postgreSQL 
-first_rrt <- dbGetQuery(con, "
-
-
-WITH first_rrt_treatment AS
-  (SELECT DISTINCT treatment.patientunitstayid,
-   MIN (treatmentoffset) AS treatmentoffset
-   FROM eicu_crd_v2.treatment
-   WHERE Lower(treatment.treatmentstring) LIKE ANY ('{%rrt%,%dialysis%,%ultrafiltration%,%cavhd%,%cvvh%,%sled%}')
-     AND Lower(treatment.treatmentstring) NOT LIKE '%chronic%'
-   GROUP BY patientunitstayid),
-   
-  first_rrt_intakeoutput AS
-  (SELECT DISTINCT intakeoutput.patientunitstayid,
-   MIN (intakeoutputoffset) AS intakeoutputoffset
-   FROM eicu_crd_v2.intakeoutput
-   WHERE lower(intakeoutput.cellpath) LIKE ANY ('{%dialysis%,%cvvh%,%rrt%,%cavhd%,%sled%,%ultrafiltration%}')
-   GROUP BY patientunitstayid)
-
-SELECT pt.patientunitstayid,
-LEAST (first_rrt_treatment.treatmentoffset, first_rrt_intakeoutput.intakeoutputoffset) AS first_rrtoffset
-FROM eicu_crd_v2.patient pt
-LEFT OUTER JOIN first_rrt_treatment ON first_rrt_treatment.patientunitstayid=pt.patientunitstayid
-LEFT OUTER JOIN first_rrt_intakeoutput ON first_rrt_intakeoutput.patientunitstayid=pt.patientunitstayid
-WHERE LEAST(first_rrt_treatment.treatmentoffset, first_rrt_intakeoutput.intakeoutputoffset) IS NOT NULL
-ORDER BY patientunitstayid
-
-")
-
+first_rrt <-run_query(getSQL('sql/aki/first_rrt.sql'))
 ```
 
 # Final List of patients with AKI and offset (with RRT)
@@ -305,63 +238,7 @@ AKIlist_final$first_rrtoffset<-NULL
 We are only interested on the first ICU stay that's why we do position =1
  
 ```{r}
-septic_patients_demograph<-dbGetQuery(con, "WITH sq AS (SELECT
- p.uniquepid,
- p.patienthealthsystemstayid,
- p.patientunitstayid,
- ROW_NUMBER() OVER (PARTITION BY p.uniquepid ORDER BY p.patientunitstayid ASC) AS position
-  , p.gender
-  , case -- fixing age >89 to 93
-                WHEN p.age LIKE '%89%' then 93 -- age avg of patients >89
-                ELSE p.age::integer end AS age_fixed
-  , p.admissionheight AS height
-  , p.admissionweight AS weight
-  , p.ethnicity
-  , p.hospitaldischargeyear
-  , p.hospitaladmitsource
-  , p.unittype
-  , p.unitadmitsource
-  , p.unitdischargetime24
-  , p.apacheadmissiondx
-  , a.actualicumortality
-  , a.actualhospitalmortality
-  , p.hospitalid
-  , s.readmit
-  , h.numbedscategory
-  , h.teachingstatus
-  , h.region
-  , a.unabridgedunitlos
-  , a.unabridgedhosplos
-  , a.unabridgedactualventdays
-  , t.intubated AS intubated_first_24h
-  , s.aids
-  , s.hepaticfailure
-  , s.lymphoma
-  , s.metastaticcancer
-  , s.leukemia
-  , s.immunosuppression
-  , s.cirrhosis
-  , s.diabetes
-  , s.electivesurgery
-  , t.dialysis AS chronic_dialysis_prior_to_hospital
-  , s.activetx
-  , a.apachescore
-FROM eicu_crd_v2.patient p
-LEFT JOIN eicu_crd_v2.apachepredvar s
-  ON  p.patientunitstayid =s.patientunitstayid
-LEFT JOIN eicu_crd_v2.apachepatientresult a
-  ON p.patientunitstayid = a.patientunitstayid
-LEFT JOIN eicu_crd_v2.apacheapsvar t
-  ON p.patientunitstayid = t.patientunitstayid
-LEFT JOIN eicu_crd_v2.hospital h
-  ON  p.hospitalid = h.hospitalid
-WHERE p.apacheadmissiondx ILIKE '%sepsis%'
-  AND s.readmit = 0
-  AND p.age NOT IN ( '0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')
-  AND a.actualhospitalmortality IS NOT NULL
-  AND hospitaldischargeyear = 2014
-  order by p.uniquepid )
- SELECT * FROM sq WHERE position = 1 --first ICU admission")
+septic_patients_demograph<-run_query(getSQL('sql/septic_patients_demograph.sql'))
 
 ```
 
@@ -371,196 +248,7 @@ Urine Output / dialysis / total per day for first 3 days
 
 ```{r}
 
-uo_dialysis<-dbGetQuery(con, "WITH t2 AS
-  (WITH t1 AS
-     (SELECT DISTINCT patientunitstayid,
-                      intakeoutputoffset,
-                      floor(intakeoutputoffset/1440)+1 AS FBday,
-                      CASE
-                          WHEN cellpath LIKE '%Intake%' THEN cellvaluenumeric
-                          ELSE 0
-                      END AS volinput,
-                      CASE
-                          WHEN cellpath LIKE '%Output%' THEN cellvaluenumeric
-                          ELSE 0
-                      END AS voloutput,
-                      CASE
-                          WHEN cellpath LIKE '%Dialysis%' THEN cellvaluenumeric
-                          ELSE 0
-                      END AS voldialysis -- cellvaluenumeric is always POSITIVE , DIALYSIStotal is NEGATIVE for fluid removal from RRT
--- distinct patientunitstayid, intakeoutputoffset, intaketotal, outputtotal, nettotal
-FROM eicu_crd_v2.intakeoutput -- where patientunitstayid in (2643615,2645216,2645408,2645540,2645654,2645683,2646201,2676623,2695938,2699938,2700094,2721481,2724239,2726091,2736158,2737146,2737161,2740998)
-
-      WHERE cellpath IN ('flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Urine',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Continuous infusion meds',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|NS IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|URINE CATHETER',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Other meds',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Indwelling Catheter Output',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|LR ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Crystalloids',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5NS ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|IVPB',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|TPN',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|IVPB',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 0.45 NS ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Foley cath',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Blood Products (ml)|pRBCs',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-0.9 % sodium chloride solution',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|0.45 NS ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|MIV',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL)-0.9 %  sodium chloride infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|D51/2NS IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|IV Drips',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|CATHETER OUTPUT',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|IVPB Volume (ml)',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|NS b IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|LR IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Hourly In',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS  w/20 mEq KCL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-0.45 % sodium chloride solution',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|1/2NS IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Dialysis (ml)|Out',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Urine, Cath:',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Voided Amount',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 0.45 NS  w/20 mEq KCL 1000 ml',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Blood Products (ml)|FFP',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-sodium chloride 0.9% infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|TPN',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 0.45 NS  w/20 mEq KCL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|IV',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|I.V.',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Foley',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 % and 0.45 % sodium chloride with KCl 20 mEq/L infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|D5NS IVF',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 LR ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Urine, void:',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Drain 1 Output mL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Actual Patient Fluid Removal',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|total',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Blood Loss',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|total',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-lactated ringers infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Vascular Flush Amount (mL)',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Saline Flush (mL)',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|PRESSURE LINE FLUSH',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Blood Products (ml)|Platelets',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Chest Tube',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|LR',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL)-lactated ringers infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS  w/40 mEq KCL 1000 ml',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Hemofiltration',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Urine foley',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Hourly Out',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Flush Total',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5W  w/150 mEq NaHCO3 1000 ml',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|1/2 NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume Expanders',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|TPN w/fat emulsion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Hypertonic saline 3% ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-0.9 % sodium chloride with potassium chloride 20 mEq/L infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|TPN',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Vascular 2 Flush Amount (mL)',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5NS  w/20 mEq KCL 1000 ml',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS KVO',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|PRESSURE LINE FLUSH',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|0.45 NS  w/20 mEq KCL 1000 ml',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|NS 0.9% Volume',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|IV/IVPB:',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Total Lumen Flushes',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 0.45 NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Colloids (ml)|5% Albumin',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL)-0.45 % sodium chloride infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|0.45 NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5NS  w/20 mEq KCL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|0.9 NS_c',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|Fat emulsion 20%',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|TPN:',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 0.2 NS ',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Electrolyte Other (volume)',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5 1/2 NS',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|Fluid Removed',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL)-dextrose 5 % and 0.45 % NaCl with KCl 20 mEq/L infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Per IV Flush: Antecubital R 20 gauge',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (ml) Heparin-heparin 25,000 units in dextrose 500 mL infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|CRRT Actual Pt Fluid Removed',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 % and 0.9% NaCl infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS carrier',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|TPN with insulin',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|PPN/TNA/TPN',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 % and 0.45% NaCl infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|D5W  w/150 mEq NaHCO3',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (ml) Heparin',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL) Diltiazem',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 % / sodium chloride 0.45% infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Output (ml)|CRRT',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Nutrition (ml)|TPN w/fat emulsion 20%',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS Carrier',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Banana Bag',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Per IV Flush: Antecubital L 20 gauge',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|IV',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|0.45 NS  w/20 mEq KCL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|IV Admix',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Generic Intake (ml)|Volume (mL)-0.9 % NaCl with KCl 20 mEq/ L  infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|IV fluids',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 %-0.9 % sodium chloride infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Volume (mL)-dextrose 5 % / sodium chloride 0.45% with KCl 20 mEq infusion',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS w/20 mEq  KCL',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|Crystalloid - Other',
-                         'flowsheet|Flowsheet Cell Labels|I&O|Intake (ml)|Crystalloids (ml)|NS  w/40 mEq KCL')
-        AND intakeoutputoffset BETWEEN 0 AND 4320 -- order by patientunitstayid, intakeoutputoffset
-) SELECT patientunitstayid,
-         FBday,
-         sum(voloutput) AS UO_perday,
-         sum(voldialysis) AS dialysis_output_perday,
-         sum(voloutput + voldialysis) AS total_output_perday
-   FROM t1
-   GROUP BY patientunitstayid,
-            FBday)
-SELECT pt.patientunitstayid,
-       max(CASE
-               WHEN fbday=1 THEN uo_perday
-               ELSE NULL
-           END)AS uo_d1,
-       max(CASE
-               WHEN fbday=2 THEN uo_perday
-               ELSE NULL
-           END) AS uo_d2,
-       max(CASE
-               WHEN fbday=3 THEN uo_perday
-               ELSE NULL
-           END) AS uo_d3,
-       max(CASE
-               WHEN fbday=1 THEN dialysis_output_perday
-               ELSE NULL
-           END) AS dialysis_output_d1,
-       max(CASE
-               WHEN fbday=2 THEN dialysis_output_perday
-               ELSE NULL
-           END) AS dialysis_output_d2,
-       max(CASE
-               WHEN fbday=3 THEN dialysis_output_perday
-               ELSE NULL
-           END) AS dialysis_output_d3,
-       max(CASE
-               WHEN fbday=1 THEN total_output_perday
-               ELSE NULL
-           END) AS total_output_d1,
-       max(CASE
-               WHEN fbday=2 THEN total_output_perday
-               ELSE NULL
-           END) AS total_output_d2,
-       max(CASE
-               WHEN fbday=3 THEN total_output_perday
-               ELSE NULL
-           END) AS total_output_d3
-FROM eicu_crd_v2.patient pt
-LEFT OUTER JOIN t2 ON pt.patientunitstayid=t2.patientunitstayid
-GROUP BY pt.patientunitstayid -- , t2.fbday -- , uo_perday, dialysis_output_perday, total_output_perday
-ORDER BY pt.patientunitstayid")
+uo_dialysis<-run_query(getSQL('sql/uo_dialysis.sql'))
 
 ```
 
@@ -572,227 +260,7 @@ The basic objective of this paper is to evaluate an age-comorbidity index in a c
 --http://www.pmidcalc.org/?sid=7722560&newtest=Y
 
 ```{r}
-
-charlson_score<-dbGetQuery(con, "with t1 as
-(
-SELECT
-	s.patientunitstayid,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/other',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/brain',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/carcinomatosis',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/nodes',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/lung',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/intra-abdominal',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/bone',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Metastases/liver')
-   THEN 6 ELSE 0 END) AS mets6,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath = 'notes/Progress Notes/Past History/Organ Systems/Infectious Disease (R)/AIDS/AIDS' THEN 6 ELSE 0 END) AS aids6,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/UGI bleeding',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/varices',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/coma',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/jaundice',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/ascites',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/encephalopathy')
-   THEN 3 ELSE 0 END) AS liver3,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/multiple/multiple',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/stroke - remote',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/stroke - within 5 years',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/stroke - within 2 years',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/stroke - date unknown',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/Strokes/stroke - within 6 months')
-		THEN 2 ELSE 0 END) AS stroke2,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - creatinine 1-2',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - creatinine 3-4',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - creatinine > 5',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - baseline creatinine unknown',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - creatinine 4-5',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Insufficiency/renal insufficiency - creatinine 2-3',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Failure/renal failure - peritoneal dialysis',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Failure/renal failure- not currently dialyzed',
-		'notes/Progress Notes/Past History/Organ Systems/Renal  (R)/Renal Failure/renal failure - hemodialysis')
-		THEN 2 ELSE 0 END) AS renal2,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Endocrine (R)/Insulin Dependent Diabetes/insulin dependent diabetes',
-		'notes/Progress Notes/Past History/Organ Systems/Endocrine (R)/Non-Insulin Dependent Diabetes/non-medication dependent',
-		'notes/Progress Notes/Past History/Organ Systems/Endocrine (R)/Non-Insulin Dependent Diabetes/medication dependent')
-		THEN 1 ELSE 0 END) AS dm,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/Anthracyclines (adriamycin, daunorubicin)',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/bone',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/stomach',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/bile duct',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/kidney',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/unknown',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/primary site',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/breast',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/uterus',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/bone',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/prostate',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/liver',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/pancreas - adenocarcinoma',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/ovary',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/other',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/sarcoma',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/chemotherapy within past mo.',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/other',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/Alkylating agents (bleomycin, cytoxan, cyclophos.)',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/testes',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/lung',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/melanoma',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/nodes',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/BMT within past 12 mos.',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/Cis-platinum',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/liver',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/head and neck',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/esophagus',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/bladder',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/chemotherapy within past 6 mos.',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/lung',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/none',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/pancreas - islet cell'
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/colon',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/brain',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/Vincristine',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/brain')
-   THEN 2 ELSE 0 END) as cancer2,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/AML',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/ALL',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/CLL',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/CML',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/leukemia - other')
-   THEN 2 ELSE 0 END) as leukemia2,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/non-Hodgkins lymphoma',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Hematologic Malignancy/Hodgkins disease')
-   THEN 2 ELSE 0 END) as lymphoma2,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN(
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/MI - within 5 years',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/MI - remote',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/MI - within 6 months',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/MI - date unknown',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/MI - within 2 years',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Myocardial Infarction/multiple/multiple')
-   THEN 1 ELSE 0 END) AS mi1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF - class I',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF - class II',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF - severity unknown',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF - class III',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF',
-		'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Congestive Heart Failure/CHF - class IV')
-   THEN 1 ELSE 0 END) AS chf1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath = 'notes/Progress Notes/Past History/Organ Systems/Cardiovascular (R)/Peripheral Vascular Disease/peripheral vascular disease' THEN 1 ELSE 0 END) AS pvd1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/TIA(s) - within 6 months',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/TIA(s) - within 2 years',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/TIA(s) - remote',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/TIA(s) - within 5 years',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/multiple/multiple',
-		'notes/Progress Notes/Past History/Organ Systems/Neurologic/TIA(s)/TIA(s) - date unknown')
-     THEN 1 ELSE 0 END) AS tia1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath = 'notes/Progress Notes/Past History/Organ Systems/Neurologic/Dementia/dementia' THEN 1 ELSE 0 END) AS dementia1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Pulmonary/COPD/COPD  - no limitations',
-		'notes/Progress Notes/Past History/Organ Systems/Pulmonary/COPD/COPD  - moderate',
-		'notes/Progress Notes/Past History/Organ Systems/Pulmonary/COPD/COPD  - severe')
-   THEN 1 ELSE 0 END) AS copd1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Rheumatic/SLE/SLE',
-		'notes/Progress Notes/Past History/Organ Systems/Rheumatic/Rheumatoid Arthritis/rheumatoid arthritis',
-		'notes/Progress Notes/Past History/Organ Systems/Rheumatic/Scleroderma/scleroderma',
-		'notes/Progress Notes/Past History/Organ Systems/Rheumatic/Vasculitis/vasculitis',
-		'notes/Progress Notes/Past History/Organ Systems/Rheumatic/Dermato/Polymyositis/dermatomyositis')
-   THEN 1 ELSE 0 END) AS ctd1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Peptic Ulcer Disease/peptic ulcer disease',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Peptic Ulcer Disease/peptic ulcer disease with h/o GI bleeding',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Peptic Ulcer Disease/hx GI bleeding/no')
-   THEN 1 ELSE 0 END) AS pud1,
-
-
-
- MAX (CASE WHEN ph.pasthistorypath IN (
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/clinical diagnosis',
-		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Cirrhosis/biopsy proven')
-   THEN 1 ELSE 0 END) as liver1,
-
-Case when s.age like '>%89'  then 5
-when s.age like '' then 0
-when s.age::numeric between 80 and 89 then 4
-when s.age::numeric between 70 and 79 then 3
-when s.age::numeric between 60 and 69 then 2
-when s.age::numeric between 50 and 59 then 1
-
-else 0 end as age_score
-
-
-
-FROM eicu_crd.patient s
-LEFT JOIN eicu_crd.pasthistory ph
-ON s.patientunitstayid = ph.patientunitstayid
-GROUP BY s.patientunitstayid, s.age
-ORDER BY s.patientunitstayid
-)
-
-Select t1.*, (t1.mets6+t1.aids6+t1.liver3+t1.stroke2+t1.renal2+t1.dm+t1.cancer2+t1.leukemia2+t1.lymphoma2+t1.mi1+ t1.chf1+t1.pvd1+t1.tia1+t1.dementia1+t1.copd1+t1.ctd1+t1.pud1+t1.liver1 + t1.age_score)as Final_Charlson_score
-from t1
-order by t1.patientunitstayid")
+charlson_score<-run_query(getSQL('sql/charlson_score.sql'))
 ```
 
 # Oasis
@@ -821,235 +289,19 @@ Oxford Acute Severity of Illness Score (OASIS)
 -- Some missing values in UO could be retrieved by extracting data from intakeoutput table
 
 ```{r}
-oasis<-dbGetQuery(con, " WITH oasis AS
-  (WITH oasiscomp AS
-     (WITH t1 AS
-        (SELECT patientunitstayid,
-                age,
-                verbal+motor+eyes AS gcs,
-                CASE
-                    WHEN electivesurgery IS NOT NULL THEN 1
-                    ELSE 0
-                END AS electivesurgery
-         FROM eicu_crd_v2.apachepredvar
-        ),t2 AS
-        (SELECT patientunitstayid,
-                heartrate,
-                meanbp,
-                respiratoryrate AS resprate,
-                temperature AS tempc,
-                urine AS UrineOutput,
-                vent AS mechvent
-         FROM eicu_crd_v2.apacheapsvar
- ),           t3 AS
-        (SELECT patientunitstayid, -hospitaladmitoffset/60 AS preiculos
-         FROM eicu_crd_v2.patient
-) SELECT t1.patientunitstayid,
-                                     t3.preiculos,
-                                     t1.age,
-                                     t1.gcs,
-                                     t2.heartrate,
-                                     t2.meanbp,
-                                     t2.resprate,
-                                     t2.tempc,
-                                     t2.UrineOutput,
-                                     t2.mechvent,
-                                     t1.electivesurgery
-      FROM t1 LEFT OUTER JOIN t2 ON t1.patientunitstayid=t2.patientunitstayid
-      LEFT OUTER JOIN t3 ON t2.patientunitstayid=t3.patientunitstayid
-) SELECT patientunitstayid,
-         CASE
-             WHEN preiculos IS NULL THEN NULL
-             WHEN preiculos < 0.17 THEN 5
-             WHEN preiculos < 4.94 THEN 3
-             WHEN preiculos < 24 THEN 0
-             WHEN preiculos > 311.8 THEN 1
-             ELSE 2
-         END AS preiculos_score,
-         CASE
-             WHEN age IS NULL THEN NULL
-             WHEN age < 24 THEN 0
-             WHEN age <= 53 THEN 3
-             WHEN age <= 77 THEN 6
-             WHEN age <= 89 THEN 9
-             WHEN age >= 90 THEN 7
-             ELSE 0
-         END AS age_score,
-         CASE
-             WHEN gcs IS NULL THEN NULL
-             WHEN gcs <= 7 THEN 10
-             WHEN gcs < 14 THEN 4
-             WHEN gcs = 14 THEN 3
-             ELSE 0
-         END AS gcs_score,
-         CASE
-             WHEN heartrate IS NULL THEN NULL
-             WHEN heartrate > 125 THEN 6
-             WHEN heartrate < 33 THEN 4
-             WHEN heartrate >= 107
-                  AND heartrate <= 125 THEN 3
-             WHEN heartrate >= 89
-                  AND heartrate <= 106 THEN 1
-             ELSE 0
-         END AS heartrate_score,
-         CASE
-             WHEN meanbp IS NULL THEN NULL
-             WHEN meanbp < 20.65 THEN 4
-             WHEN meanbp < 51 THEN 3
-             WHEN meanbp > 143.44 THEN 3
-             WHEN meanbp >= 51
-                  AND meanbp < 61.33 THEN 2
-             ELSE 0
-         END AS meanbp_score,
-         CASE
-             WHEN resprate IS NULL THEN NULL
-             WHEN resprate < 6 THEN 10
-             WHEN resprate > 44 THEN 9
-             WHEN resprate > 30 THEN 6
-             WHEN resprate > 22 THEN 1
-             WHEN resprate < 13 THEN 1
-             ELSE 0
-         END AS resprate_score,
-         CASE
-             WHEN tempc IS NULL THEN NULL
-             WHEN tempc > 39.88 THEN 6
-             WHEN tempc >= 33.22
-                  AND tempc <= 35.93 THEN 4
-             WHEN tempc >= 33.22
-                  AND tempc <= 35.93 THEN 4
-             WHEN tempc < 33.22 THEN 3
-             WHEN tempc > 35.93
-                  AND tempc <= 36.39 THEN 2
-             WHEN tempc >= 36.89
-                  AND tempc <= 39.88 THEN 2
-             ELSE 0
-         END AS temp_score,
-         CASE
-             WHEN UrineOutput IS NULL THEN NULL
-             WHEN UrineOutput < 671.09 THEN 10
-             WHEN UrineOutput > 6896.80 THEN 8
-             WHEN UrineOutput >= 671.09
-                  AND UrineOutput <= 1426.99 THEN 5
-             WHEN UrineOutput >= 1427.00
-                  AND UrineOutput <= 2544.14 THEN 1
-             ELSE 0
-         END AS UrineOutput_score,
-         CASE
-             WHEN mechvent IS NULL THEN NULL
-             WHEN mechvent = 1 THEN 9
-             ELSE 0
-         END AS mechvent_score,
-         CASE
-             WHEN electivesurgery IS NULL THEN NULL
-             WHEN electivesurgery = 1 THEN 0
-             ELSE 6
-         END AS electivesurgery_score
-   FROM oasiscomp)
-SELECT * ,
-       coalesce(age_score, 0) + coalesce(preiculos_score, 0) + coalesce(gcs_score, 0) + coalesce(heartrate_score, 0) + coalesce(meanbp_score, 0) + coalesce(resprate_score, 0) + coalesce(temp_score, 0) + coalesce(urineoutput_score, 0) + coalesce(mechvent_score, 0) + coalesce(electivesurgery_score, 0) AS OASIS
-FROM oasis")
+oasis<-run_query(getSQL('sql/oasis.sql'))
 ```
 
 # SOFA
 
 ```{r}
-sofa_total_open<-dbGetQuery(con,
-" 
-SELECT pt.patientunitstayid,
-       max(sofa_cv_open.sofa_cv + sofa_respi_open.sofa_respi + sofa_renal_open.sofarenal + sofa_3others_open.sofacoag + sofa_3others_open.sofaliver + sofa_3others_open.sofacns) AS sofatotal
-FROM eicu_crd_v2.patient pt
-INNER JOIN public.sofa_cv_open ON pt.patientunitstayid = sofa_cv_open .patientunitstayid
-INNER JOIN public.sofa_respi_open  ON pt.patientunitstayid = sofa_respi_open .patientunitstayid
-INNER JOIN public.sofa_renal_open  ON pt.patientunitstayid = sofa_renal_open .patientunitstayid
-INNER JOIN public.sofa_3others_open  ON pt.patientunitstayid = sofa_3others_open .patientunitstayid
-GROUP BY pt.patientunitstayid
-ORDER BY pt.patientunitstayid
-")
+sofa_total_open<-run_query(getSQL('sql/sofa_total_open.sql'))
 ```
 
-#Treatment Vasopressor
+# Treatment Vasopressor
 
 ```{r}
-treatment_vasopressor<-dbGetQuery(con, " WITH tr AS (
-SELECT
-	patientunitstayid ,
-	MAX(CASE WHEN treatmentstring IN ( 'toxicology|drug overdose|vasopressors|vasopressin' --                              |    23
-, 'toxicology|drug overdose|vasopressors|phenylephrine (Neosynephrine)' --                                                 |    21
-, 'toxicology|drug overdose|vasopressors|norepinephrine > 0.1 micrograms/kg/min' --                                        |    62
-, 'toxicology|drug overdose|vasopressors|norepinephrine <= 0.1 micrograms/kg/min' --                                       |    29
-, 'toxicology|drug overdose|vasopressors|epinephrine > 0.1 micrograms/kg/min' --                                           |     6
-, 'toxicology|drug overdose|vasopressors|epinephrine <= 0.1 micrograms/kg/min' --                                          |     2
-, 'toxicology|drug overdose|vasopressors|dopamine 5-15 micrograms/kg/min' --                                               |     7
-, 'toxicology|drug overdose|vasopressors|dopamine >15 micrograms/kg/min' --                                                |     3
-, 'toxicology|drug overdose|vasopressors' --                                                                               |    30
-, 'surgery|cardiac therapies|vasopressors|vasopressin' --                                                                  |   356
-, 'surgery|cardiac therapies|vasopressors|phenylephrine (Neosynephrine)' --                                                |  1000
-, 'surgery|cardiac therapies|vasopressors|norepinephrine > 0.1 micrograms/kg/min' --                                       |   390
-, 'surgery|cardiac therapies|vasopressors|norepinephrine <= 0.1 micrograms/kg/min' --                                      |   347
-, 'surgery|cardiac therapies|vasopressors|epinephrine > 0.1 micrograms/kg/min' --                                          |   117
-, 'surgery|cardiac therapies|vasopressors|epinephrine <= 0.1 micrograms/kg/min' --                                         |   178
-, 'surgery|cardiac therapies|vasopressors|dopamine  5-15 micrograms/kg/min' --                                             |   274
-, 'surgery|cardiac therapies|vasopressors|dopamine >15 micrograms/kg/min' --                                               |    23
-, 'surgery|cardiac therapies|vasopressors' --                                                                              |   596
-, 'renal|electrolyte correction|treatment of hypernatremia|vasopressin' --                                                 |     7
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|phenylephrine (Neosynephrine)' --           |   321
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|norepinephrine > 0.1 micrograms/kg/min' --  |   348
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|norepinephrine <= 0.1 micrograms/kg/min' -- |   374
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|epinephrine > 0.1 micrograms/kg/min' --     |    21
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|epinephrine <= 0.1 micrograms/kg/min' --    |   199
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|dopamine 5-15 micrograms/kg/min' --         |   277
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors|dopamine > 15 micrograms/kg/min' --         |    20
-, 'neurologic|therapy for controlling cerebral perfusion pressure|vasopressors' --                                         |   172
-, 'gastrointestinal|medications|hormonal therapy (for varices)|vasopressin' --                                             |   964
-, 'cardiovascular|shock|vasopressors|vasopressin' --                                                                       | 11082
-, 'cardiovascular|shock|vasopressors|phenylephrine (Neosynephrine)' --                                                     | 13189
-, 'cardiovascular|shock|vasopressors|norepinephrine > 0.1 micrograms/kg/min' --                                            | 24174
-, 'cardiovascular|shock|vasopressors|norepinephrine <= 0.1 micrograms/kg/min' --                                           | 17467
-, 'cardiovascular|shock|vasopressors|epinephrine > 0.1 micrograms/kg/min' --                                               |  2410
-, 'cardiovascular|shock|vasopressors|epinephrine <= 0.1 micrograms/kg/min' --                                              |  2384
-, 'cardiovascular|shock|vasopressors|dopamine  5-15 micrograms/kg/min' --                                                  |  4822
-, 'cardiovascular|shock|vasopressors|dopamine >15 micrograms/kg/min' --                                                    |  1102
-, 'cardiovascular|shock|vasopressors' --                                                                                   |  9335
-, 'toxicology|drug overdose|agent specific therapy|beta blockers overdose|dopamine' --                             |    66
-, 'cardiovascular|ventricular dysfunction|inotropic agent|norepinephrine > 0.1 micrograms/kg/min' --                       |   537
-, 'cardiovascular|ventricular dysfunction|inotropic agent|norepinephrine <= 0.1 micrograms/kg/min' --                      |   411
-, 'cardiovascular|ventricular dysfunction|inotropic agent|epinephrine > 0.1 micrograms/kg/min' --                          |   274
-, 'cardiovascular|ventricular dysfunction|inotropic agent|epinephrine <= 0.1 micrograms/kg/min' --                         |   456
-, 'cardiovascular|shock|inotropic agent|norepinephrine > 0.1 micrograms/kg/min' --                                         |  1940
-, 'cardiovascular|shock|inotropic agent|norepinephrine <= 0.1 micrograms/kg/min' --                                        |  1262
-, 'cardiovascular|shock|inotropic agent|epinephrine > 0.1 micrograms/kg/min' --                                            |   477
-, 'cardiovascular|shock|inotropic agent|epinephrine <= 0.1 micrograms/kg/min' --                                           |   505
-, 'cardiovascular|shock|inotropic agent|dopamine <= 5 micrograms/kg/min' --                                        |  1103
-, 'cardiovascular|shock|inotropic agent|dopamine  5-15 micrograms/kg/min' --                                       |  1156
-, 'cardiovascular|shock|inotropic agent|dopamine >15 micrograms/kg/min' --                                         |   144
-, 'surgery|cardiac therapies|inotropic agent|dopamine <= 5 micrograms/kg/min' --                                   |   171
-, 'surgery|cardiac therapies|inotropic agent|dopamine  5-15 micrograms/kg/min' --                                  |    93
-, 'surgery|cardiac therapies|inotropic agent|dopamine >15 micrograms/kg/min' --                                    |     3
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|norepinephrine > 0.1 micrograms/kg/min' --              |   688
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|norepinephrine <= 0.1 micrograms/kg/min' --             |   670
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|epinephrine > 0.1 micrograms/kg/min' --                 |   381
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|epinephrine <= 0.1 micrograms/kg/min' --                |   357
-, 'cardiovascular|ventricular dysfunction|inotropic agent|dopamine <= 5 micrograms/kg/min' --                      |   886
-, 'cardiovascular|ventricular dysfunction|inotropic agent|dopamine  5-15 micrograms/kg/min' --                     |   649
-, 'cardiovascular|ventricular dysfunction|inotropic agent|dopamine >15 micrograms/kg/min' --                       |    86
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|dopamine <= 5 micrograms/kg/min' --             |   346
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|dopamine  5-15 micrograms/kg/min' --            |   520
-, 'cardiovascular|myocardial ischemia / infarction|inotropic agent|dopamine >15 micrograms/kg/min' --              |    54
-) THEN 1 ELSE 0 END)::SMALLINT AS vasopressor
-FROM
-	eicu_crd_v2.treatment
-GROUP BY
-	patientunitstayid) SELECT
-	patientunitstayid,
-	SUM(vasopressor) AS vasopressor_bin
-FROM
-	tr
-GROUP BY
-	patientunitstayid
-ORDER BY
-	patientunitstayid"
-)
-
+treatment_vasopressor<-run_query(getSQL('sql/treatment_vasopressor.sql'))
 ```
 
 # FINAL JOIN

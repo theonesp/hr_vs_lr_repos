@@ -1,3 +1,4 @@
+
 WITH sq AS (SELECT
  p.uniquepid,
  p.patienthealthsystemstayid,
@@ -54,4 +55,41 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
   AND a.actualhospitalmortality IS NOT NULL
   AND hospitaldischargeyear = 2014
   order by p.uniquepid )
- SELECT * FROM sq WHERE position = 1 --first ICU admission
+ SELECT  patientunitstayid
+,uniquepid
+,patienthealthsystemstayid
+,gender
+,age_fixed
+,height
+,weight
+,ethnicity
+,hospitaldischargeyear
+,hospitaladmitsource
+,unittype
+,unitadmitsource
+,unitdischargetime24
+,apacheadmissiondx
+,actualicumortality
+,actualhospitalmortality
+,hospitalid
+,readmit
+,numbedscategory
+,teachingstatus
+,region
+,unabridgedunitlos
+,unabridgedhosplos
+,unabridgedactualventdays
+,intubated_first_24h
+,aids
+,hepaticfailure
+,lymphoma
+,metastaticcancer
+,leukemia
+,immunosuppression
+,cirrhosis
+,diabetes
+,electivesurgery
+,chronic_dialysis_prior_to_hospital
+,activetx
+,apachescore FROM sq WHERE position = 1 --first ICU admission
+;

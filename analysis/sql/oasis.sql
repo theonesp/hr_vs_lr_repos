@@ -1,3 +1,26 @@
+--Oxford Acute Severity of Illness Score (OASIS)
+-- This query extracts the Oxford acute severity of illness score in the eICU database.
+-- This score is a measure of severity of illness for patients in the ICU.
+-- The score is calculated on the first day of each ICU patients' stay.
+-- Reference for OASIS:
+--    Johnson, Alistair EW, Andrew A. Kramer, and Gari D. Clifford.
+--    "A new severity of illness scale using a subset of acute physiology and chronic health evaluation data elements shows comparable predictive accuracy*."
+--    Critical care medicine 41, no. 7 (2013): 1711-1718.
+ -- Variables used in OASIS:
+--  Heart rate, GCS, MAP, Temperature, Respiratory rate, Ventilation status
+--  Urine output
+--  Elective surgery
+--  Pre-ICU in-hospital length of stay
+--  Age
+ -- Note:
+--  The score is calculated for *all* ICU patients, with the assumption that the user will subselect appropriate ICUSTAY_IDs.
+--  For example, the score is calculated for neonates, but it is likely inappropriate to actually use the score values for these patients.
+ -- TODO:
+-- the current query relies only on variables pre-recorded for the APACHE-IV score
+-- it may be advisable to use raw values for vital signs instead (HR, MAP, temp, RR)
+-- and record min and max values for the first 24h after ICU admission
+-- Some missing values in UO could be retrieved by extracting data from intakeoutput table
+
 WITH oasis AS
   (WITH oasiscomp AS
      (WITH t1 AS
