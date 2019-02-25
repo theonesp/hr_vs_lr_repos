@@ -260,7 +260,7 @@ The basic objective of this paper is to evaluate an age-comorbidity index in a c
 --http://www.pmidcalc.org/?sid=7722560&newtest=Y
 
 ```{r}
-charlson_score<-run_query(getSQL('sql/charlson_score.sql'))
+charlson_score<-run_query(getSQL("sql/charlson_score.sql"))
 ```
 
 # Oasis

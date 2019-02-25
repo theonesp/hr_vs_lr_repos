@@ -99,7 +99,7 @@ SELECT
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/chemotherapy within past 6 mos.',
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/lung',
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/none',
-		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/pancreas - islet cell'
+		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/pancreas - islet cell',
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer/Cancer-Primary Site/colon',
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Radiation Therapy within past 6 months/brain',
 		'notes/Progress Notes/Past History/Organ Systems/Hematology/Oncology (R)/Cancer Therapy/Chemotherapy/Vincristine',
@@ -204,7 +204,7 @@ when s.age::numeric between 70 and 79 then 3
 when s.age::numeric between 60 and 69 then 2
 when s.age::numeric between 50 and 59 then 1
 
-else 0 end as age_score
+else 0 end as age_score_charlson
 
 
 
@@ -215,6 +215,6 @@ GROUP BY s.patientunitstayid, s.age
 ORDER BY s.patientunitstayid
 )
 
-Select t1.*, (t1.mets6+t1.aids6+t1.liver3+t1.stroke2+t1.renal2+t1.dm+t1.cancer2+t1.leukemia2+t1.lymphoma2+t1.mi1+ t1.chf1+t1.pvd1+t1.tia1+t1.dementia1+t1.copd1+t1.ctd1+t1.pud1+t1.liver1 + t1.age_score)as Final_Charlson_score
+Select t1.*, (t1.mets6+t1.aids6+t1.liver3+t1.stroke2+t1.renal2+t1.dm+t1.cancer2+t1.leukemia2+t1.lymphoma2+t1.mi1+ t1.chf1+t1.pvd1+t1.tia1+t1.dementia1+t1.copd1+t1.ctd1+t1.pud1+t1.liver1 + t1.age_score_charlson)as Final_Charlson_score
 from t1
 order by t1.patientunitstayid
