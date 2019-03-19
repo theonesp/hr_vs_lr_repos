@@ -1,5 +1,5 @@
 CREATE TABLE
-  public.sofacv AS (
+  public.sofa_cv_open AS (
   WITH
     t1 AS (
     WITH
