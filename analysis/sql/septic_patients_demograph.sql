@@ -8,8 +8,6 @@ WITH sq AS (SELECT
   , case -- fixing age >89 to 93
                 WHEN p.age LIKE '%89%' then 93 -- age avg of patients >89
                 ELSE p.age::integer end AS age_fixed
-  , p.admissionheight AS height
-  , p.admissionweight AS weight
   , p.ethnicity
   , p.hospitaldischargeyear
   , p.hospitaladmitsource
@@ -37,7 +35,6 @@ WITH sq AS (SELECT
   , s.cirrhosis
   , s.diabetes
   , s.electivesurgery
-  , t.dialysis AS chronic_dialysis_prior_to_hospital
   , s.activetx
   , a.apachescore
 FROM eicu_crd_v2.patient p
@@ -60,8 +57,6 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,patienthealthsystemstayid
 ,gender
 ,age_fixed
-,height
-,weight
 ,ethnicity
 ,hospitaldischargeyear
 ,hospitaladmitsource
@@ -89,7 +84,6 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,cirrhosis
 ,diabetes
 ,electivesurgery
-,chronic_dialysis_prior_to_hospital
 ,activetx
 ,apachescore FROM sq WHERE position = 1 --first ICU admission
 ;

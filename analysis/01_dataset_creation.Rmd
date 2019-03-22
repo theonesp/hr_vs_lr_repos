@@ -12,6 +12,7 @@ toc: TRUE
 library(summarytools)
 library(RPostgreSQL)
 library(dplyr)
+library(sqldf)
 ```
 
 
@@ -195,7 +196,9 @@ AKIdevelopmentW$AKIoffset <-
 
 library(dplyr)
 AKIlist<-AKIdevelopmentW %>%
-  select(patientunitstayid,AKIstage,AKIoffset)
+  select(patientunitstayid,AKIstage
+         # ,AKIoffset The nephrologist suggested not to use this variable since we can not infer when AKI was developed from it. Removing it to avoid confusion.
+         )
 ```
 
 # First RRT
@@ -224,13 +227,15 @@ AKIlist_final$AKIstage <-
     e(AKIlist_final$AKIstage)
   )
 
-AKIlist_final$AKIoffset <- 
-  ie(
-    i(!is.na(AKIlist_final$first_rrtoffset), AKIlist_final$first_rrtoffset),
-    e(AKIlist_final$AKIoffset)
-  )
+# The nephrologist suggested not to use this variable since we can not infer when AKI was developed from it. Removing it to avoid confusion.
+# AKIlist_final$AKIoffset <- 
+#   ie(
+#     i(!is.na(AKIlist_final$first_rrtoffset), AKIlist_final$first_rrtoffset),
+#     e(AKIlist_final$AKIoffset)
+#   )
 
 AKIlist_final$first_rrtoffset<-NULL
+AKIlist_final[is.na(AKIlist_final)]<-0
 ```
 
 # Septic Patients + demographics
@@ -239,7 +244,10 @@ We are only interested on the first ICU stay that's why we do position =1
  
 ```{r}
 septic_patients_demograph<-run_query(getSQL('sql/septic_patients_demograph.sql'))
+# excluding patients with outliers
+septic_patients_demograph$unabridgedactualventdays[septic_patients_demograph$unabridgedactualventdays>60]<-NA
 
+bmi_related<-run_query(getSQL('sql/bmi_related.sql'))
 ```
 
 # Urine Output Dialysis
@@ -247,9 +255,9 @@ septic_patients_demograph<-run_query(getSQL('sql/septic_patients_demograph.sql')
 Urine Output / dialysis / total per day for first 3 days
 
 ```{r}
-
 uo_dialysis<-run_query(getSQL('sql/uo_dialysis.sql'))
-
+# removing outliers
+uo_dialysis[uo_dialysis<0]<-NA
 ```
 
 # Charlson score
@@ -295,7 +303,7 @@ oasis<-run_query(getSQL('sql/oasis.sql'))
 # SOFA
 
 ```{r}
-sofa_total_open<-run_query(getSQL('sql/sofa_total_open.sql'))
+sofa_total_open<-run_query(getSQL('sql/sofa/sofa_total_open.sql'))
 ```
 
 # Treatment Vasopressor
@@ -304,12 +312,27 @@ sofa_total_open<-run_query(getSQL('sql/sofa_total_open.sql'))
 treatment_vasopressor<-run_query(getSQL('sql/treatment_vasopressor.sql'))
 ```
 
+# Hypotension Time
+
+```{r}
+hypotension_time<-run_query(getSQL('sql/hypotension_time/hypotension_time.sql'))
+```
+
+
 # FINAL JOIN
 
 ```{r}
+# First of all we exclude patients with chronic AKI
+
+hr_dataset<-sqldf("SELECT * 
+FROM septic_patients_demograph A
+LEFT JOIN chronicAKI B
+ON A.patientunitstayid = B.patientunitstayid
+WHERE B.patientunitstayid IS NULL ",drv="SQLite")
 
 hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
- septic_patients_demograph
+ hr_dataset
+,bmi_related
 ,AKIlist_final
 ,first_rrt
 ,uo_dialysis
