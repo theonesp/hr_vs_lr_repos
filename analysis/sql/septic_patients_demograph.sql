@@ -3,7 +3,7 @@ WITH sq AS (SELECT
  p.uniquepid,
  p.patienthealthsystemstayid,
  p.patientunitstayid,
- ROW_NUMBER() OVER (PARTITION BY p.uniquepid ORDER BY p.patientunitstayid ASC) AS position
+ ROW_NUMBER() OVER (PARTITION BY p.uniquepid ORDER BY p.hospitaladmitoffset DESC, p.patientunitstayid) AS POSITION
   , p.gender
   , case -- fixing age >89 to 93
                 WHEN p.age LIKE '%89%' then 93 -- age avg of patients >89
