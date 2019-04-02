@@ -318,6 +318,17 @@ treatment_vasopressor<-run_query(getSQL('sql/treatment_vasopressor.sql'))
 hypotension_time<-run_query(getSQL('sql/hypotension_time/hypotension_time.sql'))
 ```
 
+# Blood gas acidosis
+
+```{r}
+bg_acidosis<-run_query(getSQL('sql/bg_acidosis.sql'))
+```
+
+# CKD history on admission
+
+```{r}
+adm_chronic_kidney_disease<-run_query(getSQL('sql/adm_chronic_kidney_disease.sql'))
+```
 
 # FINAL JOIN
 
@@ -340,6 +351,9 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 ,oasis
 ,sofa_total_open
 ,treatment_vasopressor
+,hypotension_time
+,bg_acidosis
+,adm_chronic_kidney_disease
 ))
 
 hr_dataset<-unique(hr_dataset)
