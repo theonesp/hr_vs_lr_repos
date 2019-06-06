@@ -1,4 +1,5 @@
 -- this query detects whether the patient suffers from blood gas acidosis ( pH<7 ) in the first 3 days of ICU admission
+SET search_path TO eicu_crd_v2;
 WITH pivoted_bg AS (
 -- get blood gas measures
 with vw0 as
@@ -53,7 +54,11 @@ SELECT
   MAX(CASE
       WHEN pH<7 THEN 1
       ELSE 0
-    END)AS bg_acidosis
+    END)AS ph_under7
+, MAX(CASE
+      WHEN pH<7.1 THEN 1
+      ELSE 0
+    END)AS ph_under7_1    
 FROM
   pivoted_bg
 WHERE

@@ -13,7 +13,6 @@ WITH sq AS (SELECT
   , p.hospitaladmitsource
   , p.unittype
   , p.unitadmitsource
-  , p.unitdischargetime24
   , p.apacheadmissiondx
   , a.actualicumortality
   , a.actualhospitalmortality
@@ -62,7 +61,6 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,hospitaladmitsource
 ,unittype
 ,unitadmitsource
-,unitdischargetime24
 ,apacheadmissiondx
 ,actualicumortality
 ,actualhospitalmortality
