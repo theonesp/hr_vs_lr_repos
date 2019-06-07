@@ -338,6 +338,13 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 hr_dataset<-unique(hr_dataset)
 ```
 
+# Missing values by column
+
+```{r}
+missing_by_col<-as.data.frame(apply(hr_dataset, 2, function(col) round((sum(is.na(col))/length(col))*100,2) ))
+```
+
+
 # Summary
 
 ```{r}

@@ -16,11 +16,7 @@ WITH sq AS (SELECT
   , p.apacheadmissiondx
   , a.actualicumortality
   , a.actualhospitalmortality
-  , p.hospitalid
   , s.readmit
-  , h.numbedscategory
-  , h.teachingstatus
-  , h.region
   , a.unabridgedunitlos
   , a.unabridgedhosplos
   , a.unabridgedactualventdays
@@ -43,8 +39,6 @@ LEFT JOIN eicu_crd_v2.apachepatientresult a
   ON p.patientunitstayid = a.patientunitstayid
 LEFT JOIN eicu_crd_v2.apacheapsvar t
   ON p.patientunitstayid = t.patientunitstayid
-LEFT JOIN eicu_crd_v2.hospital h
-  ON  p.hospitalid = h.hospitalid
 WHERE p.apacheadmissiondx ILIKE '%sepsis%'
   AND s.readmit = 0
   AND p.age NOT IN ( '0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')
@@ -55,6 +49,17 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,uniquepid
 ,patienthealthsystemstayid
 ,gender
+/* ,CASE WHEN gender = 'Male' THEN 1
+      WHEN gender = 'Female' THEN 2
+      WHEN gender = 'Unknown' THEN 0
+ END AS gender_fixed */   
+,age_fixed
+,ethnicity
+,hospitaldischargeyear
+,hospitaladmitsource
+,unittype
+,unitadmitsource
+,apacheadmissiondx
 ,age_fixed
 ,ethnicity
 ,hospitaldischargeyear
@@ -63,12 +68,14 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,unitadmitsource
 ,apacheadmissiondx
 ,actualicumortality
+/* ,CASE WHEN actualicumortality = 'ALIVE' THEN 0
+      WHEN actualicumortality = 'EXPIRED' THEN 1
+ END AS icumortality */
 ,actualhospitalmortality
-,hospitalid
+/* ,CASE WHEN actualhospitalmortality = 'ALIVE' THEN 0
+      WHEN actualhospitalmortality = 'EXPIRED' THEN 1
+ END AS hospitalmortality */
 ,readmit
-,numbedscategory
-,teachingstatus
-,region
 ,unabridgedunitlos
 ,unabridgedhosplos
 ,unabridgedactualventdays
@@ -83,5 +90,6 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,diabetes
 ,electivesurgery
 ,activetx
-,apachescore FROM sq WHERE position = 1 --first ICU admission
-;
+,apachescore 
+FROM sq
+WHERE position = 1 --first ICU admission

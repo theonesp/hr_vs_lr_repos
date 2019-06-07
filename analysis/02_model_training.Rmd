@@ -1,0 +1,179 @@
+---
+title: "02_model_training"
+author: "Miguel Armengol"
+date: "6/6/2019"
+output: html_document
+---
+# Libraries
+
+```{r}
+library(summarytools)
+library(RPostgreSQL)
+library(dplyr)
+library(sqldf)
+```
+
+```{r}
+library(randomForest)
+library(boot)
+library(car)
+
+data(imports85)
+table(na.omit(imports85)$aspiration)
+table(na.omit(imports85)$numOfDoors)
+
+mod.rf<-randomForest(aspiration~numOfDoors+wheelBase+length+width+height, data=na.omit(imports85),ntree=1000,keep.forest=TRUE)
+
+#partial dependence plot for numOfDoors (two or four)
+#note: n.pt is useful for continuous variables
+pdp<-boot::inv.logit(partialPlot(mod.rf,na.omit(imports85),numOfDoors)$y)
+
+#odds ratio for aspiration = std
+
+#odds two cyclinder
+odds.2<- (pdp[2]/(1-pdp[2]))
+odds.4<- (pdp[1]/(1-pdp[1]))
+
+odds.2/odds.4  #1.74
+```
+
+# Logistic Regression
+
+```{r}
+mod_multiv<-glm(actualhospitalmortality ~ 
+rrt_bin+
+gender+
+age_fixed+
+ethnicity+
+hospitaldischargeyear+
+hospitaladmitsource+
+unittype+
+unitadmitsource+
+apacheadmissiondx+
+unabridgedunitlos+
+unabridgedhosplos+
+intubated_first_24h+
+aids+
+hepaticfailure+
+lymphoma+
+metastaticcancer+
+leukemia+
+immunosuppression+
+cirrhosis+
+diabetes+
+activetx+
+apachescore+
+final_charlson_score+
+mechvent_score+
+sofatotal
+,data=hr_dataset%>%select(
+rrt_bin,
+gender,
+age_fixed,
+ethnicity,
+hospitaldischargeyear,
+hospitaladmitsource,
+unittype,
+unitadmitsource,
+apacheadmissiondx,
+actualhospitalmortality,
+unabridgedunitlos,
+unabridgedhosplos,
+intubated_first_24h,
+aids,
+hepaticfailure,
+lymphoma,
+metastaticcancer,
+leukemia,
+immunosuppression,
+cirrhosis,
+diabetes,
+activetx,
+apachescore,
+final_charlson_score,
+mechvent_score,
+sofatotal)
+ ,family = 'binomial'
+ )
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(mod_multiv), confint.default(mod_multiv))),2))
+```
+
+
+# Random Forest
+
+```{r}
+library(randomForest)
+library(boot)
+library(car)
+
+
+mod.rf<-randomForest(actualhospitalmortality~
+gender+
+age_fixed+
+ethnicity+
+hospitaldischargeyear+
+hospitaladmitsource+
+unittype+
+unitadmitsource+
+apacheadmissiondx+
+unabridgedunitlos+
+unabridgedhosplos+
+intubated_first_24h+
+aids+
+hepaticfailure+
+lymphoma+
+metastaticcancer+
+leukemia+
+immunosuppression+
+cirrhosis+
+diabetes+
+activetx+
+apachescore+
+final_charlson_score+
+mechvent_score+
+sofatotal
+ ,data=hr_dataset%>%select(
+gender,
+age_fixed,
+ethnicity,
+hospitaldischargeyear,
+hospitaladmitsource,
+unittype,
+unitadmitsource,
+apacheadmissiondx,
+actualhospitalmortality,
+unabridgedunitlos,
+unabridgedhosplos,
+intubated_first_24h,
+aids,
+hepaticfailure,
+lymphoma,
+metastaticcancer,
+leukemia,
+immunosuppression,
+cirrhosis,
+diabetes,
+activetx,
+apachescore,
+final_charlson_score,
+mechvent_score,
+sofatotal)
+ ,ntree=1000
+ ,keep.forest=TRUE
+ )
+
+#partial dependence plot for numOfDoors (two or four)
+#note: n.pt is useful for continuous variables
+pdp<-boot::inv.logit(partialPlot(mod.rf,na.omit(imports85),numOfDoors)$y)
+
+#odds ratio for aspiration = std
+
+#odds two cyclinder
+odds.2<- (pdp[2]/(1-pdp[2]))
+odds.4<- (pdp[1]/(1-pdp[1]))
+
+odds.2/odds.4  #1.74
+```
+
+
+
