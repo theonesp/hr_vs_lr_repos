@@ -1,0 +1,69 @@
+---
+title: "03_tables_creation"
+output: html_notebook
+---
+
+```{r setup, include=FALSE}
+#load the data
+#load("C:/BIG FILES/Phenotyping/HemodynamicProjectsDatasetFeb18.RData")
+```
+
+# Load libs
+```{r}
+library(tableone)
+library(magrittr)
+library(officer)
+library(xlsx)
+library(dplyr)
+```
+
+# Table 1
+
+```{r}
+
+listVars<-c("age_fixed","gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
+                "apachescore","mech_vent_bin","rrt_bin","actualhospitalmortality","unabridgedhosplos")
+
+
+catVars<-c("gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
+  "mech_vent_bin","rrt_bin","actualhospitalmortality"
+           ) 
+
+table1 <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
+                        #strata is usefull in case we want several columns to stratify by
+                         )
+
+table1strat <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
+                        ,strata = c("actualhospitalmortality")
+                        #strata is usefull in case we want several columns to stratify by
+                         )
+## nonnormal specifies variables to be shown as median [IQR]
+# 
+# testApprox A function used to perform the large sample approximation based tests. The
+# default is chisq.test. This is not recommended when some of the cell have
+# small counts like fewer than 5.
+
+# As an aside, the following code may help for your projects, as it improves the presentation of the tables above.  You will still need to update the column and row names manually, but this should paste nicely into Word or LateX!
+
+write.xlsx(as.data.frame(print(table1)), "table1.xlsx")
+write.xlsx(as.data.frame(print(table1strat)), "table1strat.xlsx")
+
+
+#  if(!("dplyr" %in% installed.packages()[,1])) {
+#  install.packages("dplyr")
+#  }
+# library(dplyr)
+# test<-table1 %>% print(
+#   printToggle      = FALSE,
+#   showAllLevels    = TRUE,
+#   cramVars         = "kon"
+# ) %>% 
+# {data.frame(
+#   variable_name             = gsub(" ", "&nbsp;", rownames(.), fixed = TRUE), ., 
+#   row.names        = NULL, 
+#   check.names      = FALSE, 
+#   stringsAsFactors = FALSE)} %>% 
+# knitr::kable()
+
+```
+

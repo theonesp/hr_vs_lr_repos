@@ -238,9 +238,14 @@ We are only interested on the first ICU stay that's why we do position =1
 septic_patients_demograph<-run_query(getSQL('sql/septic_patients_demograph.sql'))
 # excluding patients with outliers
 septic_patients_demograph$unabridgedactualventdays[septic_patients_demograph$unabridgedactualventdays>60]<-NA
+```
 
+## BMI variables
+
+```{r}
 bmi_related<-run_query(getSQL('sql/bmi_related.sql'))
 ```
+
 
 ## Urine Output Dialysis
 
@@ -252,7 +257,7 @@ uo_dialysis<-run_query(getSQL('sql/uo_dialysis.sql'))
 uo_dialysis[uo_dialysis<0]<-NA
 ```
 
-## Charlson score
+## Charlson score and comorbidities
 
 The basic objective of this paper is to evaluate an age-comorbidity index in a cohort of patients who were originally enrolled in a prospective study to identify risk factors for peri-operative complications. Two-hundred and twenty-six patients were enrolled in the study. The participants were patients with hypertension or diabetes who underwent elective surgery between 1982 and 1985 and who survived to discharge. Two-hundred and eighteen patients survived until discharge. These patients were followed for at least five years post-operatively. The estimated relative risk of death for each comorbidity rank was 1.4 and for each decade of age was 1.4. When age and comorbidity were modelled as a combined age-comorbidity score, the estimated relative risk for each combined age-comorbidity unit was 1.45. Thus, the estimated relative risk of death from an increase of one in the comorbidity score proved approximately equal to that from an additional decade of age. The combined age-comorbidity score may be useful in some longitudinal studies to estimate relative risk of death from prognostic clinical covariates.
 --Charlson M, Szatrowski TP, Peterson J, Gold J. Validation of a combined comorbidity index. J Clin Epidemiol. 1994;47(11):1245-51. PMID: 7722560
@@ -261,9 +266,11 @@ The basic objective of this paper is to evaluate an age-comorbidity index in a c
 
 ```{r}
 charlson_score<-run_query(getSQL("sql/charlson_score.sql"))
+comorbidities<-run_query(getSQL("sql/comorbidities.sql"))
+
 ```
 
-## Mechanical Ventilation Score
+## Mechanical Ventilation Score & bindary
 
 Oxford Acute Severity of Illness Score (OASIS)
 -- The score is calculated on the first day of each ICU patients' stay.
@@ -276,6 +283,8 @@ Oxford Acute Severity of Illness Score (OASIS)
 
 ```{r}
 mechvent_score<-run_query(getSQL('sql/mechvent_score.sql'))
+mechvent<-run_query(getSQL('sql/mechvent.sql'))
+
 ```
 
 ## SOFA
@@ -333,6 +342,8 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 ,hypotension_time
 ,bg_acidosis
 ,adm_chronic_kidney_disease
+,mechvent
+,comorbidities
 ))
 
 hr_dataset<-unique(hr_dataset)
@@ -349,6 +360,12 @@ missing_by_col<-as.data.frame(apply(hr_dataset, 2, function(col) round((sum(is.n
 
 ```{r}
 view(dfSummary(hr_dataset))
+```
+
+# Data Export
+
+```{r}
+write.csv(hr_dataset,'hr_dataset.csv')
 ```
 
 

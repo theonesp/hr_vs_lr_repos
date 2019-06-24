@@ -43,7 +43,7 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
   AND s.readmit = 0
   AND p.age NOT IN ( '0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')
   AND a.actualhospitalmortality IS NOT NULL
-  AND hospitaldischargeyear = 2014
+  AND hospitaldischargeyear IN (2014,2015)
   order by p.uniquepid )
  SELECT  patientunitstayid
 ,uniquepid
@@ -53,13 +53,6 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
       WHEN gender = 'Female' THEN 2
       WHEN gender = 'Unknown' THEN 0
  END AS gender_fixed */   
-,age_fixed
-,ethnicity
-,hospitaldischargeyear
-,hospitaladmitsource
-,unittype
-,unitadmitsource
-,apacheadmissiondx
 ,age_fixed
 ,ethnicity
 ,hospitaldischargeyear

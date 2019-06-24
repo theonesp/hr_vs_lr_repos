@@ -106,65 +106,49 @@ library(randomForest)
 library(boot)
 library(car)
 
+hr_dataset$gender<-as.factor(hr_dataset$gender)
+hr_dataset$actualhospitalmortality<-as.numeric(hr_dataset$actualhospitalmortality)
+
+selected_data<-hr_dataset%>%select(
+gender,
+age_fixed,
+# ethnicity,
+# hospitaldischargeyear,
+# hospitaladmitsource,
+# unittype,
+# unitadmitsource,
+# apacheadmissiondx,
+actualhospitalmortality,
+# unabridgedunitlos,
+# unabridgedhosplos,
+# intubated_first_24h,
+# aids,
+# hepaticfailure,
+# lymphoma,
+# metastaticcancer,
+# leukemia,
+# immunosuppression,
+# cirrhosis,
+# diabetes,
+# activetx,
+# apachescore,
+# final_charlson_score,
+# mechvent_score,
+# sofatotal 
+)
 
 mod.rf<-randomForest(actualhospitalmortality~
 gender+
-age_fixed+
-ethnicity+
-hospitaldischargeyear+
-hospitaladmitsource+
-unittype+
-unitadmitsource+
-apacheadmissiondx+
-unabridgedunitlos+
-unabridgedhosplos+
-intubated_first_24h+
-aids+
-hepaticfailure+
-lymphoma+
-metastaticcancer+
-leukemia+
-immunosuppression+
-cirrhosis+
-diabetes+
-activetx+
-apachescore+
-final_charlson_score+
-mechvent_score+
-sofatotal
- ,data=hr_dataset%>%select(
-gender,
-age_fixed,
-ethnicity,
-hospitaldischargeyear,
-hospitaladmitsource,
-unittype,
-unitadmitsource,
-apacheadmissiondx,
-actualhospitalmortality,
-unabridgedunitlos,
-unabridgedhosplos,
-intubated_first_24h,
-aids,
-hepaticfailure,
-lymphoma,
-metastaticcancer,
-leukemia,
-immunosuppression,
-cirrhosis,
-diabetes,
-activetx,
-apachescore,
-final_charlson_score,
-mechvent_score,
-sofatotal)
- ,ntree=1000
- ,keep.forest=TRUE
- )
+age_fixed
+,data=selected_data
+,ntree=1000
+,keep.forest=TRUE
+,class=T #it is a classification model
+)
 
 #partial dependence plot for numOfDoors (two or four)
 #note: n.pt is useful for continuous variables
-pdp<-boot::inv.logit(partialPlot(mod.rf,na.omit(imports85),numOfDoors)$y)
+pdp<-boot::inv.logit(partialPlot(mod.rf,selected_data,numOfDoors)$y)
 
 #odds ratio for aspiration = std
 
