@@ -15,6 +15,7 @@ library(magrittr)
 library(officer)
 library(xlsx)
 library(dplyr)
+library(sqldf)
 ```
 
 # Table 1
@@ -22,11 +23,11 @@ library(dplyr)
 ```{r}
 
 listVars<-c("age_fixed","gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
-                "apachescore","mech_vent_bin","rrt_bin","actualhospitalmortality","unabridgedhosplos")
+                "apachescore","mech_vent_bin","rrt_bin","actualhospitalmortality","unabridgedhosplos","AKI_bin","teachingstatus")
 
 
 catVars<-c("gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
-  "mech_vent_bin","rrt_bin","actualhospitalmortality"
+  "mech_vent_bin","rrt_bin","actualhospitalmortality","AKI_bin","teachingstatus"
            ) 
 
 table1 <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
@@ -34,7 +35,7 @@ table1 <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVar
                          )
 
 table1strat <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
-                        ,strata = c("actualhospitalmortality")
+                        ,strata = c("AKI_bin")
                         #strata is usefull in case we want several columns to stratify by
                          )
 ## nonnormal specifies variables to be shown as median [IQR]

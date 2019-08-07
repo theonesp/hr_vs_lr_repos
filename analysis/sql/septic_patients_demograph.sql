@@ -32,6 +32,7 @@ WITH sq AS (SELECT
   , s.electivesurgery
   , s.activetx
   , a.apachescore
+  , h.teachingstatus
 FROM eicu_crd_v2.patient p
 LEFT JOIN eicu_crd_v2.apachepredvar s
   ON  p.patientunitstayid =s.patientunitstayid
@@ -39,11 +40,13 @@ LEFT JOIN eicu_crd_v2.apachepatientresult a
   ON p.patientunitstayid = a.patientunitstayid
 LEFT JOIN eicu_crd_v2.apacheapsvar t
   ON p.patientunitstayid = t.patientunitstayid
+LEFT JOIN eicu_crd_v2.hospital h
+  ON p.hospitalID = h.hospitalid
 WHERE p.apacheadmissiondx ILIKE '%sepsis%'
   AND s.readmit = 0
   AND p.age NOT IN ( '0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')
   AND a.actualhospitalmortality IS NOT NULL
-  AND hospitaldischargeyear IN (2014,2015)
+  AND hospitaldischargeyear IN (2014)
   order by p.uniquepid )
  SELECT  patientunitstayid
 ,uniquepid
@@ -83,6 +86,7 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
 ,diabetes
 ,electivesurgery
 ,activetx
-,apachescore 
+,apachescore
+,teachingstatus
 FROM sq
 WHERE position = 1 --first ICU admission

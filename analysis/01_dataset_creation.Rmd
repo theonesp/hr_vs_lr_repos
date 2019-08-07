@@ -64,8 +64,8 @@ Tables needed for calculating AKI stage.
 (they already had AKI before ICU admin)
 
 ```{r}
-
 chronicAKI<-run_query(getSQL('sql/aki/chronicAKI.sql'))
+chronicAKI['chronicAKI_bin']<-1
 ```
 
 ### Baseline Creatinine
@@ -228,6 +228,8 @@ AKIlist_final$AKIstage <-
 
 AKIlist_final$first_rrtoffset<-NULL
 AKIlist_final[is.na(AKIlist_final)]<-0
+# We add a binary version of AKI
+AKIlist_final<-AKIlist_final%>%mutate(AKI_bin=if_else(AKIstage==0,0,1))
 ```
 
 ## Septic Patients + demographics
@@ -320,14 +322,14 @@ adm_chronic_kidney_disease<-run_query(getSQL('sql/adm_chronic_kidney_disease.sql
 # FINAL JOIN
 
 ```{r}
-# First of all we exclude patients with chronic AKI
+# we will be excluding everyone with chronic AKI
 
 hr_dataset<-sqldf("SELECT A.* 
-FROM septic_patients_demograph A
-LEFT JOIN chronicAKI B
-ON A.patientunitstayid = B.patientunitstayid
-WHERE B.patientunitstayid IS NULL "
-,drv="SQLite")
+ FROM septic_patients_demograph A
+ LEFT JOIN chronicAKI B
+ ON A.patientunitstayid = B.patientunitstayid
+ WHERE B.patientunitstayid IS NULL "
+ ,drv="SQLite")
 
 hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
  hr_dataset
@@ -349,7 +351,7 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 hr_dataset<-unique(hr_dataset)
 ```
 
-# Missing values by column
+# Missing values per column
 
 ```{r}
 missing_by_col<-as.data.frame(apply(hr_dataset, 2, function(col) round((sum(is.na(col))/length(col))*100,2) ))
