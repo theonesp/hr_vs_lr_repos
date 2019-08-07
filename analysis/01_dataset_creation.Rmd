@@ -349,6 +349,13 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 ))
 
 hr_dataset<-unique(hr_dataset)
+
+# constraints applied
+hr_dataset<-hr_dataset %>%
+  filter(
+      mech_vent_bin == 1
+    , AKI_bin == 1
+  )
 ```
 
 # Missing values per column

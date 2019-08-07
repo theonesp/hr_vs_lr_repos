@@ -23,19 +23,19 @@ library(sqldf)
 ```{r}
 
 listVars<-c("age_fixed","gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
-                "apachescore","mech_vent_bin","rrt_bin","actualhospitalmortality","unabridgedhosplos","AKI_bin","teachingstatus")
+                "apachescore","rrt_bin","unabridgedhosplos","teachingstatus")
 
 
-catVars<-c("gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
-  "mech_vent_bin","rrt_bin","actualhospitalmortality","AKI_bin","teachingstatus"
+catVars<-c("gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia"
+  ,"rrt_bin","teachingstatus"
            ) 
 
-table1 <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
+table1 <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars ,testNormal=oneway.test 
                         #strata is usefull in case we want several columns to stratify by
                          )
 
 table1strat <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = catVars,testNormal=oneway.test 
-                        ,strata = c("AKI_bin")
+                        ,strata = c("actualhospitalmortality")
                         #strata is usefull in case we want several columns to stratify by
                          )
 ## nonnormal specifies variables to be shown as median [IQR]
@@ -46,8 +46,13 @@ table1strat <- CreateTableOne(vars = listVars, data = hr_dataset, factorVars = c
 
 # As an aside, the following code may help for your projects, as it improves the presentation of the tables above.  You will still need to update the column and row names manually, but this should paste nicely into Word or LateX!
 
-write.xlsx(as.data.frame(print(table1)), "table1.xlsx")
-write.xlsx(as.data.frame(print(table1strat)), "table1strat.xlsx")
+table1_printed<-as.data.frame(print(table1))
+table1strat_printed<-as.data.frame(print(table1strat))
+
+table1_final<-cbind(table1_printed,table1strat_printed)
+
+write.xlsx(as.data.frame(print(table1_final)), "table1_final.xlsx")
+
 
 
 #  if(!("dplyr" %in% installed.packages()[,1])) {
@@ -65,6 +70,8 @@ write.xlsx(as.data.frame(print(table1strat)), "table1strat.xlsx")
 #   check.names      = FALSE, 
 #   stringsAsFactors = FALSE)} %>% 
 # knitr::kable()
+
+
 
 ```
 

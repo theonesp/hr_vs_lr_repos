@@ -46,7 +46,7 @@ WHERE p.apacheadmissiondx ILIKE '%sepsis%'
   AND s.readmit = 0
   AND p.age NOT IN ( '0', '1','2','3','4','5','6','7','8','9','10','11','12','13','14','15')
   AND a.actualhospitalmortality IS NOT NULL
-  AND hospitaldischargeyear IN (2014)
+--  AND hospitaldischargeyear IN (2014) /*In the end we are going to study all years*/
   order by p.uniquepid )
  SELECT  patientunitstayid
 ,uniquepid
