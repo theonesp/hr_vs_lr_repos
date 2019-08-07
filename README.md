@@ -1,5 +1,5 @@
 # hr_vs_lr_repos
-## National Impatient Survey (Administrative database) VS eICU (high resolution database)
+## National Inpatient Survey (Administrative database) VS eICU (high resolution database)
 
 Does the outcome change depending on the use of an administrative database versus a high resolution database? In order to answer the question:
 _&nbsp;&nbsp;&nbsp;Is rrt an independent predictor for hospital mortality during ICU?_
