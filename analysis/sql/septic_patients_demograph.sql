@@ -31,7 +31,7 @@ WITH sq AS (SELECT
   , s.diabetes
   , s.electivesurgery
   , s.activetx
-  , a.apachescore
+  , a.apachescore -- APACHE score (versions IV and IVa
   , h.teachingstatus
 FROM eicu_crd_v2.patient p
 LEFT JOIN eicu_crd_v2.apachepredvar s

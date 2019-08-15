@@ -322,6 +322,7 @@ adm_chronic_kidney_disease<-run_query(getSQL('sql/adm_chronic_kidney_disease.sql
 # FINAL JOIN
 
 ```{r}
+
 # we will be excluding everyone with chronic AKI
 
 hr_dataset<-sqldf("SELECT A.* 
