@@ -9,11 +9,14 @@ We identified rrt as:
 Patients containing: rrt OR ultrafiltration OR cavhd OR dialysis OR cvvh OR sled 
 and not containing chronic
 
-Our inclusion criteria are:
- - First ICU admission
- - apacheadmissiondx containing 'sepsis'
- - not readmited
- - age > 15
- - actualhospitalmortality IS NOT NULL
- - hospitaldischargeyear = 2014
+Our Inclusion/Exclusion criteria are:
+ - Including only First ICU admission.
+ - Excluding age <16.
+ - Including only Apache admission diagnosis containing '%sepsis%'.
+ - Excluding patients who had a readmission.
+ - Excluding Chronic AKI.
+ - Including only patients who developed AKI during ICU stay.
+ - Including only patients with mechanical ventilation.
+ - Including patients with actualhospitalmortality NOT NULL.
+ - We are going to study all years.
 

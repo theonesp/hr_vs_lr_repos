@@ -6,7 +6,7 @@ output: html_document
 toc: TRUE
 ---
 
-# Libraries
+# Environment
 
 ```{r}
 library(summarytools)
