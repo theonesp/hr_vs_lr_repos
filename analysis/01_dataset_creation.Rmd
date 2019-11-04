@@ -16,7 +16,7 @@ library(sqldf)
 ```
 
 
-# Creating useful funtions
+## Creating useful funtions
 
 ```{r}
 # function avoiding add the connection data in each iteration
@@ -55,20 +55,18 @@ getSQL <- function(filepath){
 
 ## AKI developed during ICU stay calculation
 
-
-
 Tables needed for calculating AKI stage.
 
-### Chronic patients with AKI receiving rrt
+### Data Extraction
 
-(they already had AKI before ICU admin)
+#### Dialysis
 
 ```{r}
-chronicAKI<-run_query(getSQL('sql/aki/chronicAKI.sql'))
-chronicAKI['chronicAKI_bin']<-1
+# query the data from postgreSQL 
+dialysis <-run_query(getSQL('sql/aki/dialysis.sql'))
 ```
 
-### Baseline Creatinine
+#### Baseline Creatinine
 
 first available value between -12 and +12h from admission [VER 25/01/17]
 
@@ -76,7 +74,7 @@ first available value between -12 and +12h from admission [VER 25/01/17]
 baseline_creat<-run_query(getSQL('sql/aki/baseline_creat.sql'))
 ```
 
-### Peak creatinine within 48h
+#### Peak creatinine within 48h
 
 Peak creatinine within first 48h + time from admission to peak creatinine within first 48h
 
@@ -84,7 +82,7 @@ Peak creatinine within first 48h + time from admission to peak creatinine within
 peakcreat48h<-run_query(getSQL('sql/aki/peakcreat48h.sql'))
 ```
 
-### Peak creatinine within first 7 days
+#### Peak creatinine within first 7 days
 
 Peak creatinine within first 7 days + time from admission to peak creatinine in 7 days + time from peak creatinine in 7 days to ICU discharge
 
@@ -93,16 +91,15 @@ peakcreat7days<-run_query(getSQL('sql/aki/peakcreat7days.sql'))
 ```
 
 
-
 ### AKI Dataset creation
 
 ```{r}
 library(dplyr)
-#We need to exclude patients who already had AKI before ICU admin)
-AKIdevelopment<-subset(baseline_creat, !(baseline_creat$patientunitstayid %in% chronicAKI$patientunitstayid) )
+#We need to exclude patients who have history_of_esrd )
+AKIdevelopment<-subset(baseline_creat, !(baseline_creat$patientunitstayid %in% dialysis$patientunitstayid[dialysis$history_of_esrd_bin==1]) )
+AKIdevelopment<-left_join(AKIdevelopment,dialysis%>%select(patientunitstayid,acute_dialysis_bin))
 AKIdevelopment<-left_join(AKIdevelopment, peakcreat7days)
 AKIdevelopment<-left_join(AKIdevelopment, peakcreat48h)
-AKIdevelopment$position<-NULL
 ```
 
 
@@ -178,58 +175,27 @@ ie <- function(...) {
 
 AKIdevelopmentW$AKIstage <- 
   ie(
-    i(AKIdevelopmentW$cr7undercreat1>=3,   3),
+    i(AKIdevelopmentW$cr7undercreat1>=3 || AKIdevelopmentW$acute_dialysis_bin==1,   3),
     i(AKIdevelopmentW$cr7undercreat1>=2,   2),
     i(AKIdevelopmentW$cr7undercreat1>=1.5,   1),
     i(AKIdevelopmentW$cr48hdundercreat1>=0.3,   1),
     e(0)
   )
 
-
 library(dplyr)
 AKIlist<-AKIdevelopmentW %>%
   select(patientunitstayid,AKIstage
          # ,AKIoffset The nephrologist suggested not to use this variable since we can not infer when AKI was developed from it. Removing it to avoid confusion.
          )
+AKIlist[is.na(AKIlist)]<-0
 ```
 
-### First RRT
-
-Extracts the first rrt from non chronic patients from treatment and the first rrt from intakeoutput separately. 
-Then it selects the first rrt between treatment and intakeoutput per patient.
+### Final List of patients with AKI 
 
 ```{r}
-# query the data from postgreSQL 
-first_rrt <-run_query(getSQL('sql/aki/first_rrt.sql'))
-```
-
-### Final List of patients with AKI and offset (with RRT)
-
-Offset is not reliable so we exclude it.
-
-```{r}
-# Dr Danziger said the offset is not reliable for telling when the patient exactly developed AKI so he adviced not to use it
-
-AKIlist_final<-left_join(AKIlist,first_rrt)
-
-
-AKIlist_final$AKIstage <- 
-  ie(
-    i(!is.na(AKIlist_final$first_rrtoffset),   3),
-    e(AKIlist_final$AKIstage)
-  )
-
-# The nephrologist suggested not to use this variable since we can not infer when AKI was developed from it. Removing it to avoid confusion.
-# AKIlist_final$AKIoffset <- 
-#   ie(
-#     i(!is.na(AKIlist_final$first_rrtoffset), AKIlist_final$first_rrtoffset),
-#     e(AKIlist_final$AKIoffset)
-#   )
-
-AKIlist_final$first_rrtoffset<-NULL
-AKIlist_final[is.na(AKIlist_final)]<-0
+AKIlist[is.na(AKIlist)]<-0
 # We add a binary version of AKI
-AKIlist_final<-AKIlist_final%>%mutate(AKI_bin=if_else(AKIstage==0,0,1))
+AKIlist<-AKIlist%>%mutate(AKI_bin=if_else(AKIstage==0,0,1))
 ```
 
 ## Septic Patients + demographics
@@ -323,20 +289,21 @@ adm_chronic_kidney_disease<-run_query(getSQL('sql/adm_chronic_kidney_disease.sql
 
 ```{r}
 
-# we will be excluding everyone with chronic AKI
+# we will be excluding everyone with ESRD
+# Kidney failure, also called end-stage renal disease (ESRD), is the last stage of chronic kidney disease.
 
 hr_dataset<-sqldf("SELECT A.* 
  FROM septic_patients_demograph A
- LEFT JOIN chronicAKI B
- ON A.patientunitstayid = B.patientunitstayid
+ LEFT JOIN dialysis B 
+ ON A.patientunitstayid = B.patientunitstayid AND history_of_esrd_bin = 1
  WHERE B.patientunitstayid IS NULL "
  ,drv="SQLite")
 
 hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
  hr_dataset
 ,bmi_related
-,AKIlist_final
-,first_rrt
+,AKIlist
+,dialysis
 ,uo_dialysis
 ,charlson_score
 ,mechvent_score
@@ -369,7 +336,7 @@ missing_by_col<-as.data.frame(apply(hr_dataset, 2, function(col) round((sum(is.n
 # Summary
 
 ```{r}
-view(dfSummary(hr_dataset))
+view(dfSummary(dialysis))
 ```
 
 # Data Export

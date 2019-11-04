@@ -23,11 +23,11 @@ library(sqldf)
 ```{r}
 
 listVars<-c("age_fixed","gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia",
-                "apachescore","rrt_bin","unabridgedhosplos","teachingstatus")
+                "apachescore","unabridgedhosplos","teachingstatus","dialysis_in_the_icu_bin", "dialysis_cat", "pasthistory_cat"        ,"acute_dialysis_bin","history_of_esrd_bin"  )
 
 
 catVars<-c("gender", "comorb_cancer", "comorb_chf" , "comorb_cirrhosis", "comorb_copd" , "comorb_ctd", "comorb_diabetes" , "comorb_leukemia", "comorb_lymphoma" , "comorb_metastases", "comorb_mi" , "comorb_pud", "comorb_renal_fail" , "comorb_stroke", "comorb_tia"
-  ,"rrt_bin","teachingstatus"
+  ,"rrt_bin","teachingstatus","dialysis_in_the_icu_bin", "dialysis_cat", "pasthistory_cat"        ,"acute_dialysis_bin","history_of_esrd_bin" 
            ) 
 
 nonnormal <-c("unabridgedhosplos")
