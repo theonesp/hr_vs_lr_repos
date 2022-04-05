@@ -174,9 +174,9 @@ SELECT
    END
    AS age_score_charlson 
 FROM
-   eicu_crd.patient s 
+   patient s 
    LEFT JOIN
-      eicu_crd.pasthistory ph 
+      pasthistory ph 
       ON s.patientunitstayid = ph.patientunitstayid 
 GROUP BY
    s.patientunitstayid, s.age 
@@ -185,7 +185,10 @@ ORDER BY
 )
 SELECT
 patientunitstayid
-, (t1.mets6 + t1.aids6 + t1.liver3 + t1.stroke2 + t1.renal2 + t1.dm + t1.cancer2 + t1.leukemia2 + t1.lymphoma2 + t1.mi1 + t1.chf1 + t1.pvd1 + t1.tia1 + t1.dementia1 + t1.copd1 + t1.ctd1 + t1.pud1 + t1.liver1 + t1.age_score_charlson) AS final_charlson_score 
+, t1.chf1
+, (t1.mets6 + t1.aids6 + t1.liver3 + t1.stroke2 + t1.renal2 + t1.dm + t1.cancer2 + t1.leukemia2 + t1.lymphoma2 + t1.mi1 
+-- + t1.chf1  we remove chf since we are later adjusting by it individually.
++ t1.pvd1 + t1.tia1 + t1.dementia1 + t1.copd1 + t1.ctd1 + t1.pud1 + t1.liver1 + t1.age_score_charlson) AS final_charlson_score 
 FROM
    t1 
 ORDER BY

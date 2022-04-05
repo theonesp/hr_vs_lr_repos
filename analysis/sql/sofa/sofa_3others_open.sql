@@ -15,7 +15,7 @@ CREATE TABLE
           WHEN LOWER(physicalexampath) LIKE '%gcs/motor%' THEN CAST(physicalexamvalue AS numeric)
           ELSE NULL END) AS gcs_motor
     FROM
-      eicu_crd.physicalexam pe
+      physicalexam pe
     WHERE
       (LOWER(physicalexampath) LIKE '%gcs/eyes%'
         OR LOWER(physicalexampath) LIKE '%gcs/verbal%'
@@ -46,18 +46,18 @@ CREATE TABLE
           WHEN LOWER(labname) LIKE 'platelet%' THEN labresult
           ELSE NULL END) AS plt
     FROM
-      eicu_crd.patient pt
+      patient pt
     LEFT OUTER JOIN
-      eicu_crd.lab
+      lab
     ON
-      pt.patientunitstayid=eicu_crd.lab.patientunitstayid
+      pt.patientunitstayid=lab.patientunitstayid
     WHERE
       labresultoffset BETWEEN -1440
       AND 1440
     GROUP BY
       pt.patientunitstayid )
   SELECT
-    DISTINCT pt.patientunitstayid,
+    DISTINCT t1.patientunitstayid,
     MIN(t1.gcs) AS gcs,
     MAX(t2.bili) AS bili,
     MIN(t2.plt) AS plt,
@@ -81,19 +81,15 @@ CREATE TABLE
         WHEN gcs>=3 THEN 4
         ELSE 0 END) AS sofacns
   FROM
-    public.cohort1 pt
-  LEFT OUTER JOIN
     t1
-  ON
-    t1.patientunitstayid=pt.patientunitstayid
   LEFT OUTER JOIN
     t2
   ON
-    t2.patientunitstayid=pt.patientunitstayid
+    t2.patientunitstayid=t1.patientunitstayid
   GROUP BY
-    pt.patientunitstayid,
+    t1.patientunitstayid,
     t1.gcs,
     t2.bili,
     t2.plt
   ORDER BY
-    pt.patientunitstayid );
+    t1.patientunitstayid );

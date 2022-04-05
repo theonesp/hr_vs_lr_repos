@@ -1,4 +1,4 @@
-  -- create table public.sofa_renal_open AS
+create table public.sofa_renal_open AS
   (
   WITH
     t1 AS (
@@ -8,11 +8,11 @@
           WHEN LOWER(labname) LIKE 'creatin%' THEN labresult
           ELSE NULL END) AS creat
     FROM
-      eicu_crd.patient pt
+      patient pt
     LEFT OUTER JOIN
-      eicu_crd.lab
+      lab
     ON
-      pt.patientunitstayid=eicu_crd.lab.patientunitstayid
+      pt.patientunitstayid=lab.patientunitstayid
     WHERE
       labresultoffset BETWEEN -1440
       AND 1440
@@ -36,7 +36,7 @@
               WHEN (intakeoutputoffset) BETWEEN -120 AND 1440 THEN 1
               ELSE NULL END) AS dayz
         FROM
-          eicu_crd.intakeoutput
+          intakeoutput
         WHERE
           intakeoutputoffset BETWEEN 0
           AND 5760
@@ -52,7 +52,7 @@
           WHEN uod1 IS NOT NULL THEN uod1
           ELSE NULL END) AS UO
     FROM
-      eicu_crd.patient pt
+      patient pt
     LEFT OUTER JOIN
       uotemp
     ON
@@ -60,7 +60,7 @@
     GROUP BY
       pt.patientunitstayid )
   SELECT
-    pt.patientunitstayid,
+    t1.patientunitstayid,
     -- t1.creat, t2.uo,
     (CASE
         WHEN uo <200 OR creat>5 THEN 4
@@ -71,16 +71,12 @@
       AND 2 THEN 1
         ELSE 0 END) AS sofarenal
   FROM
-    public.cohort1 pt
-  LEFT OUTER JOIN
     t1
-  ON
-    t1.patientunitstayid=pt.patientunitstayid
   LEFT OUTER JOIN
     t2
   ON
-    t2.patientunitstayid=pt.patientunitstayid
+    t2.patientunitstayid=t1.patientunitstayid
   ORDER BY
-    pt.patientunitstayid
+    t1.patientunitstayid
     -- group by pt.patientunitstayid, t1.creat, t2.uo
     );

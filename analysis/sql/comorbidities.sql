@@ -143,9 +143,9 @@ SELECT
 		'notes/Progress Notes/Past History/Organ Systems/Gastrointestinal (R)/Peptic Ulcer Disease/hx GI bleeding/no')
    THEN 1 ELSE 0 END) AS comorb_pud
 FROM
-   eicu_crd.patient s 
+   patient s 
    LEFT JOIN
-      eicu_crd.pasthistory ph 
+      pasthistory ph 
       ON s.patientunitstayid = ph.patientunitstayid 
 GROUP BY
    s.patientunitstayid

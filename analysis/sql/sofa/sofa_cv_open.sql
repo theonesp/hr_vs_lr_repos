@@ -1,3 +1,4 @@
+SET search_path to eicu_crd_v2;
 CREATE TABLE
   public.sofa_cv_open AS (
   WITH
@@ -11,7 +12,7 @@ CREATE TABLE
             WHEN noninvasivemean IS NOT NULL THEN noninvasivemean
             ELSE NULL END) AS map
       FROM
-        eicu_crd.vitalaperiodic
+        vitalaperiodic
       WHERE
         observationoffset BETWEEN -1440
         AND 1440
@@ -25,7 +26,7 @@ CREATE TABLE
             WHEN systemicmean IS NOT NULL THEN systemicmean
             ELSE NULL END) AS map
       FROM
-        eicu_crd.vitalperiodic
+        vitalperiodic
       WHERE
         observationoffset BETWEEN -1440
         AND 1440
@@ -39,7 +40,7 @@ CREATE TABLE
         ELSE NULL
       END AS map
     FROM
-      eicu_crd.patient pt
+      patient pt
     LEFT OUTER JOIN
       tt1
     ON
@@ -60,7 +61,7 @@ CREATE TABLE
           ELSE NULL
         END ) AS dopa
     FROM
-      eicu_crd.infusiondrug id
+      infusiondrug id
     WHERE
       LOWER(drugname) LIKE '%dopamine%'
       AND infusionoffset BETWEEN -120
@@ -82,7 +83,7 @@ CREATE TABLE
           ELSE NULL
         END ) AS norepi
     FROM
-      eicu_crd.infusiondrug id
+      infusiondrug id
     WHERE
       LOWER(drugname) LIKE '%epinephrine%'
       AND infusionoffset BETWEEN -120
@@ -99,7 +100,7 @@ CREATE TABLE
       DISTINCT patientunitstayid,
       1 AS dobu
     FROM
-      eicu_crd.infusiondrug id
+      infusiondrug id
     WHERE
       LOWER(drugname) LIKE '%dobutamin%'
       AND drugrate <>''
@@ -111,7 +112,7 @@ CREATE TABLE
     ORDER BY
       patientunitstayid )
   SELECT
-    pt.patientunitstayid,
+    t1.patientunitstayid,
     t1.map,
     t2.dopa,
     t3.norepi,
@@ -125,22 +126,18 @@ CREATE TABLE
         WHEN map <70 THEN 1
         ELSE 0 END) AS SOFA_cv
   FROM
-    public.cohort1 pt / eicu_crd.patient
-  LEFT OUTER JOIN
     t1
-  ON
-    t1.patientunitstayid=pt.patientunitstayid
   LEFT OUTER JOIN
     t2
   ON
-    t2.patientunitstayid=pt.patientunitstayid
+    t2.patientunitstayid=t1.patientunitstayid
   LEFT OUTER JOIN
     t3
   ON
-    t3.patientunitstayid=pt.patientunitstayid
+    t3.patientunitstayid=t1.patientunitstayid
   LEFT OUTER JOIN
     t4
   ON
-    t4.patientunitstayid=pt.patientunitstayid
+    t4.patientunitstayid=t1.patientunitstayid
   ORDER BY
-    pt.patientunitstayid );
+    t1.patientunitstayid );

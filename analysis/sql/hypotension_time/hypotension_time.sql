@@ -6,6 +6,33 @@
 -- the hypotension time was calculated for the first 3 days of ICU admission
 -- total hypotension time can not be greater than 3 days.
 -- total hypotension time is calculated in minutes
+
+-- We are also including the code for calculating the median in case it is not available
+-- in your psql version.
+/**
+CREATE OR REPLACE FUNCTION _final_median(numeric[])
+   RETURNS numeric AS
+$$
+   SELECT AVG(val)
+   FROM (
+     SELECT val
+     FROM unnest($1) val
+     ORDER BY 1
+     LIMIT  2 - MOD(array_upper($1, 1), 2)
+     OFFSET CEIL(array_upper($1, 1) / 2.0) - 1
+   ) sub;
+$$
+LANGUAGE 'sql' IMMUTABLE;
+
+CREATE AGGREGATE median(numeric) (
+  SFUNC=array_append,
+  STYPE=numeric[],
+  FINALFUNC=_final_median,
+  INITCOND='{}'
+);
+**/
+---
+
 WITH
   pivoted_bp_mean AS(
   -- create columns with only numeric data
