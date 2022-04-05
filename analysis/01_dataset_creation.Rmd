@@ -1,31 +1,47 @@
 ---
-title: "HR vs LR repo"
-author: "Miguel ?ngel Armengol de la Hoz"
-date: "June 21, 2018"
-output: html_document
-toc: TRUE
+title: "01_dataset_creation"
+author: "Miguel Ángel Armengol"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_notebook:
+    code_folding: hide
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_float: yes
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0(substr(inputFile,1,nchar(inputFile)-4)," ",Sys.Date(),'.html')) })
+editor_options: 
+  markdown: 
+    wrap: 72
 ---
 
 # Environment
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(summarytools)
-library(RPostgreSQL)
 library(dplyr)
 library(sqldf)
-```
+library(tidyverse)
+library(nlme)
+library(zoo)
+library(tableone)
+library(readxl)
+library(feather)
+library(magrittr)
+library(MatchIt)
+library(kableExtra)
 
+#not in formula
 
-## Creating useful funtions
+'%!in%' <- function(x,y)!('%in%'(x,y))
 
-```{r}
 # function avoiding add the connection data in each iteration
 run_query<-function(query){
 query_output<-dbGetQuery(con,query)
   return(query_output)
 }
 
-# function for reading sql files
+# function for reading sql files from a folder
 getSQL <- function(filepath){
   con = file(filepath, "r")
   sql.string <- ""
@@ -57,16 +73,14 @@ getSQL <- function(filepath){
 
 Tables needed for calculating AKI stage.
 
-### Data Extraction
-
-#### Dialysis
+### Dialysis
 
 ```{r}
 # query the data from postgreSQL 
 dialysis <-run_query(getSQL('sql/aki/dialysis.sql'))
 ```
 
-#### Baseline Creatinine
+### Baseline Creatinine
 
 first available value between -12 and +12h from admission [VER 25/01/17]
 
@@ -74,22 +88,24 @@ first available value between -12 and +12h from admission [VER 25/01/17]
 baseline_creat<-run_query(getSQL('sql/aki/baseline_creat.sql'))
 ```
 
-#### Peak creatinine within 48h
+### Peak creatinine within 48h
 
-Peak creatinine within first 48h + time from admission to peak creatinine within first 48h
+Peak creatinine within first 48h + time from admission to peak
+creatinine within first 48h
 
 ```{r}
 peakcreat48h<-run_query(getSQL('sql/aki/peakcreat48h.sql'))
 ```
 
-#### Peak creatinine within first 7 days
+### Peak creatinine within first 7 days
 
-Peak creatinine within first 7 days + time from admission to peak creatinine in 7 days + time from peak creatinine in 7 days to ICU discharge
+Peak creatinine within first 7 days + time from admission to peak
+creatinine in 7 days + time from peak creatinine in 7 days to ICU
+discharge
 
 ```{r}
 peakcreat7days<-run_query(getSQL('sql/aki/peakcreat7days.sql'))
 ```
-
 
 ### AKI Dataset creation
 
@@ -102,11 +118,12 @@ AKIdevelopment<-left_join(AKIdevelopment, peakcreat7days)
 AKIdevelopment<-left_join(AKIdevelopment, peakcreat48h)
 ```
 
-
 ### Windsorization
 
-Clean data by means of winsorization, i.e., by shrinking outlying observations to the border of the main part of the data.
-The creatinine values have been winsorize replacing the extreme observations using 95% and 5% percentiles.
+This function Cleans data by means of winsorization, i.e., by shrinking
+outlying observations to the border of the main part of the data. The
+creatinine values have been winsorized replacing the extreme
+observations using 95% and 5% percentiles.
 
 ```{r}
 AKIdevelopmentW<-AKIdevelopment
@@ -190,22 +207,31 @@ AKIlist<-AKIdevelopmentW %>%
 AKIlist[is.na(AKIlist)]<-0
 ```
 
-### Final List of patients with AKI 
+### Final List of patients with AKI
 
 ```{r}
 AKIlist[is.na(AKIlist)]<-0
 # We add a binary version of AKI
 AKIlist<-AKIlist%>%mutate(AKI_bin=if_else(AKIstage==0,0,1))
+AKIlist<-AKIlist%>%filter(AKI_bin==1)%>%select(patientunitstayid)
 ```
 
-## Septic Patients + demographics
+## Demographics Patients
 
-We are only interested on the first ICU stay that's why we do position =1
- 
+We are only interested on the first ICU stay that's why we do position
+=1
+
 ```{r}
-septic_patients_demograph<-run_query(getSQL('sql/septic_patients_demograph.sql'))
-# excluding patients with outliers
-septic_patients_demograph$unabridgedactualventdays[septic_patients_demograph$unabridgedactualventdays>60]<-NA
+demograph_patients<-run_query(getSQL('sql/demograph_patients.sql'))
+```
+
+## Septic Patients
+
+We are only interested on the first ICU stay that's why we do position
+=1
+
+```{r}
+septic<-run_query(getSQL('sql/septic.sql'))
 ```
 
 ## BMI variables
@@ -214,40 +240,46 @@ septic_patients_demograph$unabridgedactualventdays[septic_patients_demograph$una
 bmi_related<-run_query(getSQL('sql/bmi_related.sql'))
 ```
 
-
-## Urine Output Dialysis
-
-Urine Output / dialysis / total per day for first 3 days
-
-```{r}
-uo_dialysis<-run_query(getSQL('sql/uo_dialysis.sql'))
-# removing outliers
-uo_dialysis[uo_dialysis<0]<-NA
-```
-
 ## Charlson score and comorbidities
 
-The basic objective of this paper is to evaluate an age-comorbidity index in a cohort of patients who were originally enrolled in a prospective study to identify risk factors for peri-operative complications. Two-hundred and twenty-six patients were enrolled in the study. The participants were patients with hypertension or diabetes who underwent elective surgery between 1982 and 1985 and who survived to discharge. Two-hundred and eighteen patients survived until discharge. These patients were followed for at least five years post-operatively. The estimated relative risk of death for each comorbidity rank was 1.4 and for each decade of age was 1.4. When age and comorbidity were modelled as a combined age-comorbidity score, the estimated relative risk for each combined age-comorbidity unit was 1.45. Thus, the estimated relative risk of death from an increase of one in the comorbidity score proved approximately equal to that from an additional decade of age. The combined age-comorbidity score may be useful in some longitudinal studies to estimate relative risk of death from prognostic clinical covariates.
---Charlson M, Szatrowski TP, Peterson J, Gold J. Validation of a combined comorbidity index. J Clin Epidemiol. 1994;47(11):1245-51. PMID: 7722560
---Online calculator:
---http://www.pmidcalc.org/?sid=7722560&newtest=Y
+The basic objective of this paper is to evaluate an age-comorbidity
+index in a cohort of patients who were originally enrolled in a
+prospective study to identify risk factors for peri-operative
+complications. Two-hundred and twenty-six patients were enrolled in the
+study. The participants were patients with hypertension or diabetes who
+underwent elective surgery between 1982 and 1985 and who survived to
+discharge. Two-hundred and eighteen patients survived until discharge.
+These patients were followed for at least five years post-operatively.
+The estimated relative risk of death for each comorbidity rank was 1.4
+and for each decade of age was 1.4. When age and comorbidity were
+modelled as a combined age-comorbidity score, the estimated relative
+risk for each combined age-comorbidity unit was 1.45. Thus, the
+estimated relative risk of death from an increase of one in the
+comorbidity score proved approximately equal to that from an additional
+decade of age. The combined age-comorbidity score may be useful in some
+longitudinal studies to estimate relative risk of death from prognostic
+clinical covariates. --Charlson M, Szatrowski TP, Peterson J, Gold J.
+Validation of a combined comorbidity index. J Clin Epidemiol.
+1994;47(11):1245-51. PMID: 7722560 --Online calculator:
+--<http://www.pmidcalc.org/?sid=7722560&newtest=Y>
 
 ```{r}
 charlson_score<-run_query(getSQL("sql/charlson_score.sql"))
 comorbidities<-run_query(getSQL("sql/comorbidities.sql"))
-
 ```
 
 ## Mechanical Ventilation Score & bindary
 
-Oxford Acute Severity of Illness Score (OASIS)
--- The score is calculated on the first day of each ICU patients' stay.
--- Reference for OASIS:
---    Johnson, Alistair EW, Andrew A. Kramer, and Gari D. Clifford.
---    "A new severity of illness scale using a subset of acute physiology and chronic health evaluation data elements shows comparable predictive accuracy*."
---    Critical care medicine 41, no. 7 (2013): 1711-1718.
---  The score is calculated for *all* ICU patients, with the assumption that the user will subselect appropriate ICUSTAY_IDs.
---  For example, the score is calculated for neonates, but it is likely inappropriate to actually use the score values for these patients.
+Oxford Acute Severity of Illness Score (OASIS) -- The score is
+calculated on the first day of each ICU patients' stay. -- Reference for
+OASIS: -- Johnson, Alistair EW, Andrew A. Kramer, and Gari D. Clifford.
+-- "A new severity of illness scale using a subset of acute physiology
+and chronic health evaluation data elements shows comparable predictive
+accuracy*." -- Critical care medicine 41, no. 7 (2013): 1711-1718. --
+The score is calculated for* all\* ICU patients, with the assumption
+that the user will subselect appropriate ICUSTAY_IDs. -- For example,
+the score is calculated for neonates, but it is likely inappropriate to
+actually use the score values for these patients.
 
 ```{r}
 mechvent_score<-run_query(getSQL('sql/mechvent_score.sql'))
@@ -285,26 +317,206 @@ bg_acidosis<-run_query(getSQL('sql/bg_acidosis.sql'))
 adm_chronic_kidney_disease<-run_query(getSQL('sql/adm_chronic_kidney_disease.sql'))
 ```
 
-# FINAL JOIN
+## High resolution variables (long format)
+
+We are going to extract them in a minute by minute rate and aggregate it
+in an average every hour.
+
+For all high resolution variables we run several aggregation steps:
+
+1)  Median Aggregation by minute in case there are several records per
+    minute per patient.
+
+2)  Aggregation by hour by patient for the 60 minutes epoch we are
+    addressing per patient going from -7 hours (-420 min) of admission
+    to 24 hours (1440). i.e.:
+
+    -   Epoch \#1 would be (-420,-360],
+
+    -   Epoch \#2 (-360,-300] ,etc..
+
+    -   Last window would be (1380,1440].
 
 ```{r}
+labs_high_res<-run_query(getSQL('sql/high_resolution/labs_high_res.sql'))
+labs_high_res$byhour <- cut(labs_high_res$chartoffset, breaks=seq(-420,1500,by = 60) ,dig.lab = 5 )
+labs_high_res<-labs_high_res%>%group_by(patientunitstayid,byhour)%>%
+  mutate(
+    albumin = median(albumin,na.rm=T),
+    bilirubin = median(bilirubin,na.rm=T),
+    bun = median(bun,na.rm=T),
+    calcium = median(calcium,na.rm=T),
+    creatinine = median(creatinine,na.rm=T),
+    glucose = median(glucose,na.rm=T),
+    bicarbonate = median(bicarbonate,na.rm=T),
+    totalco2 = median(totalco2,na.rm=T),
+    hematocrit = median(hematocrit,na.rm=T),
+    hemoglobin = median(hemoglobin,na.rm=T),
+    inr = median(inr,na.rm=T),
+    lactate = median(lactate,na.rm=T), # not applicable
+    platelets = median(platelets,na.rm=T),
+    potassium = median(potassium,na.rm=T),
+    ptt = median(ptt,na.rm=T),
+    sodium = median(sodium,na.rm=T),
+    wbc = median(wbc,na.rm=T),
+    bands = median(bands,na.rm=T),
+    alt = median(alt,na.rm=T),
+    ast = median(ast,na.rm=T),
+    alp = median(alp,na.rm=T),
+    fio2 = median(fio2,na.rm=T),
+    rdw = median(rdw,na.rm=T),
+    phosphate = median(phosphate,na.rm=T),
+    ldh = median(ldh,na.rm=T)
+        )
+lab_columns<-names(labs_high_res)[names(labs_high_res) %!in% c("patientunitstayid","chartoffset","byhour")]
+
+
+vitals_high_res<-run_query(getSQL('sql/high_resolution/vitals_high_res.sql'))
+vitals_high_res$byhour <- cut(vitals_high_res$chartoffset, breaks=seq(-420,1500,by = 60) ,dig.lab = 5 )
+vitals_high_res<-vitals_high_res%>%group_by(patientunitstayid,byhour)%>%
+  summarise(
+    heartrate = median(heartrate,na.rm=T),
+    respiratoryrate = median(respiratoryrate,na.rm=T),
+    spo2 = median(spo2,na.rm=T),
+    temperature = median(temperature,na.rm=T),
+    sbp = median(sbp,na.rm=T),
+    dbp = median(dbp,na.rm=T),
+    map = median(map,na.rm=T),
+    )
+vitals_columns<-names(vitals_high_res)[names(vitals_high_res) %!in% c("patientunitstayid","chartoffset","byhour")]
+
+
+
+any_pressors_bin_high_res<-run_query(getSQL('sql/high_resolution/any_pressors_bin_high_res.sql')) 
+any_pressors_bin_high_res$byhour <- cut(any_pressors_bin_high_res$chartoffset, breaks=seq(-420,1500,by = 60) ,dig.lab = 5 )
+any_pressors_bin_high_res<-any_pressors_bin_high_res%>%group_by(patientunitstayid,byhour)%>%
+  summarise(
+    vasopressor_bin = max(vasopressor_bin,na.rm=T)
+    )
+any_pressors_columns<-names(any_pressors_bin_high_res)[names(any_pressors_bin_high_res) %!in% c("patientunitstayid","chartoffset","byhour")]
+
+
+specific_pressors_bin_high_res<-run_query(getSQL('sql/high_resolution/specific_pressors_bin_high_res.sql'))
+specific_pressors_bin_high_res[is.na(specific_pressors_bin_high_res)]<-0
+specific_pressors_bin_high_res$byhour <- cut(specific_pressors_bin_high_res$chartoffset, breaks=seq(-420,1500,by = 60) ,dig.lab = 5 )
+specific_pressors_bin_high_res<-specific_pressors_bin_high_res%>%group_by(patientunitstayid,byhour)%>%
+  summarise(
+    dopamine = max(dopamine,na.rm=T),
+    dobutamine = max(dobutamine,na.rm=T),
+    norepinephrine = max(norepinephrine,na.rm=T),
+    phenylephrine = max(phenylephrine,na.rm=T),
+    epinephrine = max(epinephrine,na.rm=T),
+    vasopressin = max(vasopressin,na.rm=T),
+    milrinone = max(milrinone,na.rm=T),
+    heparin = max(heparin,na.rm=T)
+    )
+specific_pressors_columns<-names(specific_pressors_bin_high_res)[names(specific_pressors_bin_high_res) %!in% c("patientunitstayid","chartoffset","byhour")]
+
+
+urine_output_high_res<-run_query(getSQL('sql/high_resolution/urine_output_high_res.sql'))
+urine_output_high_res$byhour <- cut(urine_output_high_res$chartoffset, breaks=seq(-420,1500,by = 60) ,dig.lab = 5 )
+urine_output_high_res<-urine_output_high_res%>%group_by(patientunitstayid,byhour)%>%
+  summarise(
+    outputtotal = median(outputtotal,na.rm=T),
+    urineoutput = median(urineoutput,na.rm=T)
+    )
+urine_output_columns<-names(urine_output_high_res)[names(urine_output_high_res) %!in% c("patientunitstayid","chartoffset","byhour")]
+
+```
+
+## AKI ICD
+
+```{r}
+aki_icd_based <- run_query(getSQL("sql/aki/aki_icd_based.sql"))
+```
+
+## Shock ICD
+
+```{r}
+shock_icd <- run_query(getSQL("sql/shock_icd.sql"))
+```
+
+## Pressors Binary Low Resolution
+
+```{r}
+any_pressors_bin_low_res <- run_query(getSQL("sql/any_pressors_bin_low_res.sql"))
+```
+
+# Creating dataset for base model A & B
+
+## Exclusion criteria
+
+```{r}
+print('Initial number of patients')
+a<-nrow(demograph_patients)
+a
+
+print('Patients readmitted excluded:')
+hr_dataset<-demograph_patients%>%filter(readmit == 0)
+b<-nrow(hr_dataset)
+a-b
+
+print('Patients underage excluded:')
+hr_dataset<-hr_dataset%>%filter(age_fixed >= 16)
+c<-nrow(hr_dataset)
+b-c
+
+print('Patients missing mortality data excluded:')
+hr_dataset<-hr_dataset%>%filter(!is.na(hospitalmortality) )
+d<-nrow(hr_dataset)
+c-d
 
 # we will be excluding everyone with ESRD
 # Kidney failure, also called end-stage renal disease (ESRD), is the last stage of chronic kidney disease.
-
-hr_dataset<-sqldf("SELECT A.* 
- FROM septic_patients_demograph A
+print('ESRD Patients excluded:')
+hr_dataset<-hr_dataset<-sqldf("SELECT A.* 
+ FROM hr_dataset A
  LEFT JOIN dialysis B 
  ON A.patientunitstayid = B.patientunitstayid AND history_of_esrd_bin = 1
  WHERE B.patientunitstayid IS NULL "
  ,drv="SQLite")
+e<-nrow(hr_dataset)
+d-e
 
+print('Non Septic Patients excluded:')
+hr_dataset<-hr_dataset%>%filter(patientunitstayid %in% septic$patientunitstayid)
+f<-nrow(hr_dataset)
+e-f
+
+print('Non Mech. Ventilated Patients excluded:')
+hr_dataset<-hr_dataset<-sqldf("SELECT A.* 
+ FROM hr_dataset A
+ LEFT JOIN mechvent B 
+ ON A.patientunitstayid = B.patientunitstayid AND mech_vent_bin = 0
+ WHERE B.patientunitstayid IS NULL "
+ ,drv="SQLite")
+g<-nrow(hr_dataset)
+f-g
+
+# AKI is no longer an exclusion criteria, meeting 04012020
+# print('Patients without AKI excluded')
+# hr_dataset<-hr_dataset%>%filter(patientunitstayid %in% AKIlist$patientunitstayid)
+# h<-nrow(hr_dataset)
+# g-h
+
+print('Patients with empty gender information')
+hr_dataset<-hr_dataset%>%filter(gender %!in% c('','Unknown') )
+h<-nrow(hr_dataset)
+g-h
+
+print('Final number of patients')
+nrow(hr_dataset)
+
+#, AKI_bin == 1 # we have decided not to use AKI as an exclusion criteria 09092020
+```
+
+## Initial JOIN (static, low resolution, variables)
+
+```{r}
 hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
  hr_dataset
 ,bmi_related
-,AKIlist
 ,dialysis
-,uo_dialysis
 ,charlson_score
 ,mechvent_score
 ,sofa_total_open
@@ -314,36 +526,403 @@ hr_dataset<-Reduce(function(...) merge(..., all.x=TRUE), list(
 ,adm_chronic_kidney_disease
 ,mechvent
 ,comorbidities
+,baseline_creat%>%select(patientunitstayid,creat1)
+,shock_icd
+,any_pressors_bin_low_res
 ))
 
+# setting proper data type
 hr_dataset<-unique(hr_dataset)
+hr_dataset$hospitalmortality<-as.factor(hr_dataset$hospitalmortality)
+hr_dataset$icd_shock<-as.factor(hr_dataset$icd_shock)
+hr_dataset$vasopressor_bin_lr<-as.factor(hr_dataset$vasopressor_bin_lr)
+hr_dataset$numbedscategory<-as.factor(hr_dataset$numbedscategory)
+hr_dataset$dialysis_in_the_icu_bin<-as.factor(hr_dataset$dialysis_in_the_icu_bin)
+hr_dataset$chf1<-as.factor(hr_dataset$chf1)
 
-# constraints applied
-hr_dataset<-hr_dataset %>%
-  filter(
-      mech_vent_bin == 1
-    , AKI_bin == 1
-  )
+round(prop.table(table(hr_dataset$hospitalmortality)),2)
+round(prop.table(table(hr_dataset$dialysis_in_the_icu_bin)),2)
+
+round(prop.table(table(hr_dataset$hospitalmortality,hr_dataset$dialysis_in_the_icu_bin)),2)
+
+hr_dataset_table1<-hr_dataset
 ```
 
-# Missing values per column
+## Static variables imputation
+
+### Creat Imputation
+
+We impute missing values of creat1 (0.1% missing) using median
+(population) imputation.
 
 ```{r}
-missing_by_col<-as.data.frame(apply(hr_dataset, 2, function(col) round((sum(is.na(col))/length(col))*100,2) ))
+hr_dataset$creat1_imp<-if_else(
+ is.na(hr_dataset$creat1)
+,median(hr_dataset$creat1,na.rm = T)
+,hr_dataset$creat1
+)
 ```
 
+### Drugs imputation
 
-# Summary
+Binary variables: if missing, it's mean they did not receive a dose, so
+we replace it with 0.
 
 ```{r}
-view(dfSummary(dialysis))
+# imputing missing binary variables, if missing, it's mean NO, Zero.
+hr_dataset$vasopressor_bin_lr<-if_else(is.na(hr_dataset$vasopressor_bin_lr),'0',as.character(hr_dataset$vasopressor_bin_lr))
 ```
 
-# Data Export
+### ICD Shock imputation
+
+Binary variables: if missing, it's mean they did not receive a dose, so
+we replace it with 0.
 
 ```{r}
-write.csv(hr_dataset,'hr_dataset.csv')
+# imputing missing binary variables, if missing, it's mean NO, Zero.
+hr_dataset$icd_shock<-if_else(is.na(hr_dataset$icd_shock),'0',as.character(hr_dataset$icd_shock))
 ```
 
+### Num Beds Category imputation
+
+Binary variables: if missing, it's mean they did not receive a dose, so
+we replace it with 0.
+
+```{r}
+# imputing missing binary variables, if missing, it's mean NO, Zero.
+hr_dataset$numbedscategory<-as.factor(if_else(is.na(hr_dataset$numbedscategory),'Other/Unknown',as.character(hr_dataset$numbedscategory)))
+```
+
+### Region imputation
+
+```{r}
+hr_dataset$region<-as.factor(if_else(is.na(hr_dataset$region),'Other/Unknown',as.character(hr_dataset$region)))
+```
+
+### Etnicity imputation
+
+```{r}
+hr_dataset$ethnicity<-if_else(hr_dataset$ethnicity=="",'Other/Unknown',as.character(hr_dataset$ethnicity))
+```
+
+### Apache imputation
+
+```{r}
+# -1 in apache means missing
+hr_dataset$apachescore<-as.numeric(replace(hr_dataset$apachescore, hr_dataset$apachescore==-1, NA))
+
+hr_dataset$apachescore<-if_else( is.na(hr_dataset$apachescore)
+                               ,median(hr_dataset$apachescore,na.rm = T)
+                               ,hr_dataset$apachescore)
+
+```
+
+## Data Conversion
+
+Setting proper data type.
+
+```{r}
+hr_dataset$gender<-as.factor(hr_dataset$gender)
+hr_dataset$hospitalmortality<-as.factor(hr_dataset$hospitalmortality)
+hr_dataset$dialysis_in_the_icu_bin<-as.factor(hr_dataset$dialysis_in_the_icu_bin)
+hr_dataset$teachingstatus<-as.factor(if_else(hr_dataset$teachingstatus==TRUE,1,0))
+hr_dataset_table1$chf1<-if_else(hr_dataset_table1$chf1=='1', 'CHF','No CHF')
+hr_dataset_table1$dialysis_in_the_icu_bin<-if_else(hr_dataset_table1$dialysis_in_the_icu_bin=='1', 'Dialysis','No Dialysis')
+```
+
+## Addresing Categorical Variables
+
+### Num Beds Category
+
+Barret Rush jue, 15 abr 17:43 (hace 13 días) para Leo, Eric, Jennifer,
+Miguel
+
+Hey guys
+
+I was trying to code these NIS bedsizes and I dont think its really
+going to work. I think we should just reclassify the eiCU ones to
+
+Small - \<100 Medium 100-240 Large \>250
+
+```{r}
+table(hr_dataset$numbedscategory)
+hr_dataset$numbedscategory<-as.character(hr_dataset$numbedscategory)
+hr_dataset$numbedscategory <- plyr::revalue(hr_dataset$numbedscategory, c("<100" = "A) Small","100 - 249" = "B) Medium","250 - 499" = "C) Large", ">= 500" = "C) Large","Other/Unknown"  = "D) Other/Unknown")  )
+table(hr_dataset$numbedscategory)
+```
+
+### Region
+
+```{r}
+hr_dataset$region<-relevel(as.factor(hr_dataset$region), ref= 'South')
+```
+
+### Ethnicity
+
+04012021: We decided we are using originaal ethnicity cats
+
+```{r}
+# hr_dataset$ethnicity<-as.factor(hr_dataset$ethnicity)
+# 
+# # we are remaping the ethnicity
+# hr_dataset$ethnicity<-if_else(hr_dataset$ethnicity %in% c('Caucasian','African American'),hr_dataset$ethnicity, as.factor('Other/Unknown') )
+
+table(hr_dataset$ethnicity)
+hr_dataset$ethnicity<-relevel(as.factor(hr_dataset$ethnicity), ref= 'Caucasian')
+```
+
+## Table 1 Base Dataset
+
+```{r}
+vars_in_base_model<-c('hospitalmortality', 'age_fixed', 'gender', 'ethnicity', 'numbedscategory', 'teachingstatus', 'region', 'dialysis_in_the_icu_bin', 'final_charlson_score', 'icd_shock')
+
+cat_variables<-rep(NA, length(vars_in_base_model))
+stratifyby<-"dialysis_in_the_icu_bin"
 
 
+label(hr_dataset$age_fixed)<-'Age'
+
+cont<-1
+for (i in 1:length(vars_in_base_model) ) {
+  if ( n_distinct(hr_dataset[vars_in_base_model[i] ])<=10 ) {
+    print(i)
+    print(vars_in_base_model[i])
+    print(names(hr_dataset[vars_in_base_model[i]]))
+    cat_variables[cont]<-names(hr_dataset[vars_in_base_model[i]])
+    cont<-cont+1
+  }
+}  
+
+cat_variables<-cat_variables[!is.na(cat_variables)]
+
+table1_base<-print(CreateTableOne(vars = vars_in_base_model, strata = stratifyby, factorVars = cat_variables
+    ,data = hr_dataset, addOverall=T),varLabels = T)
+
+# run this in console for html output, the code below uses kableExtra::
+
+table1_base %>%
+  kbl(caption = "Table 1 of base model" , align = "c") %>%
+  kable_classic_2(full_width = F, html_font = "Cambria")%>%
+  add_header_above(c(" "," ", 'dialysis_in_the_icu_bin' = 2," ", "" ))
+```
+
+# Creating dataset for HR model B
+
+## Converting static variables from wide to long format
+
+```{r}
+timeranges<-unique(labs_high_res$byhour)
+
+hr_dataset_long<-hr_dataset%>%select(
+                  patientunitstayid
+                , age_fixed
+                , gender
+                , ethnicity
+                , numbedscategory
+                , teachingstatus
+                , region
+                , dialysis_in_the_icu_bin
+                , apachescore
+                , final_charlson_score
+                , creat1_imp
+                , icd_shock
+                , vasopressor_bin_lr
+                , hospitalmortality
+)
+
+# 182 entries per patient.
+hr_dataset_long<-hr_dataset_long[rep(seq_len(nrow(hr_dataset_long)), each = 31), ]
+
+# We want a chartoffset column per patient going from - 360 to 1440 
+
+hr_dataset_long<-hr_dataset_long %>%
+  group_by(patientunitstayid)%>%
+  mutate(byhour = timeranges)%>%
+  arrange(patientunitstayid,byhour)  
+
+dim(hr_dataset_long)
+```
+
+## Final JOIN (high resolution variables)
+
+```{r}
+hr_dataset_long<-Reduce(function(...) merge(..., all.x=TRUE, by = c("patientunitstayid","byhour")), list(
+hr_dataset_long,
+labs_high_res[,names(labs_high_res)!='chartoffset'], #exclude chartoffset column
+vitals_high_res[,names(vitals_high_res)!='chartoffset'], #exclude chartoffset column
+any_pressors_bin_high_res,
+specific_pressors_bin_high_res
+))
+
+hr_dataset_long$chartoffset<-NULL
+```
+
+## High Resolution Data Imputation
+
+### Back-forward fill
+
+We are using backward and forward fill for every variable by
+patientunitstayid.
+
+Continuous variables: Back and Forward fill per patient. Forward filling
+means to fill missing values with previous data available for a given
+patient. Backward filling means to fill missing values with the next
+data point available for a given patient.
+
+```{r}
+# we don't want to apply back-forward fill to our binary columns or to our id
+columns_toexclude<-c('patientunitstayid',any_pressors_columns,specific_pressors_columns)
+
+hr_dataset_long<- hr_dataset_long %>% group_by(patientunitstayid)%>%fill(names(hr_dataset_long)[names(hr_dataset_long) %!in% columns_toexclude], .direction='downup')
+```
+
+### Binary Drugs imputation
+
+Binary variables: if missing, it means they did not receive a dose, so
+we replace it with 0.
+
+```{r}
+# imputing missing binary variables, if missing, it's mean NO, Zero.
+
+hr_dataset_long[c('vasopressor_bin' ,'dopamine' ,'dobutamine','norepinephrine','phenylephrine','epinephrine','vasopressin','milrinone','heparin')][is.na(hr_dataset_long[c('vasopressor_bin' ,'dopamine' ,'dobutamine','norepinephrine','phenylephrine','epinephrine','vasopressin','milrinone','heparin')])] <- 0
+```
+
+## Data ordering
+
+```{r}
+hr_dataset_long<-hr_dataset_long%>%arrange(patientunitstayid,byhour)
+```
+
+# Creating dataset for HR model A
+
+## Joining and aggregating across datasets
+
+This is an Aggregated version of the Time Series dataset. It includes
+all high resolution variables (not available in the low resolution
+model) but in an aggregated fashion.
+
+```{r}
+
+hr_dataset_agg<-sqldf(
+  'SELECT
+	hr_dataset.patientunitstayid,
+	hr_dataset.age_fixed,
+	hr_dataset.gender,
+	hr_dataset.ethnicity,
+	hr_dataset.numbedscategory ,
+	hr_dataset.teachingstatus,
+	hr_dataset.region ,
+	hr_dataset.dialysis_in_the_icu_bin,
+	hr_dataset.final_charlson_score,
+	hr_dataset.icd_shock,
+	hr_dataset.chf1,
+	hr_dataset.vasopressor_bin,
+	hr_dataset.hospitalmortality,
+	MEDIAN(albumin) AS albumin_agg,
+	MEDIAN(bilirubin) AS bilirubin_agg,
+	MEDIAN(bun) AS bun_agg,
+	MEDIAN(calcium) AS calcium_agg,
+	MEDIAN(creatinine) AS creatinine_agg,
+	MEDIAN(glucose) AS glucose_agg,
+	MEDIAN(bicarbonate) AS bicarbonate_agg,
+	MEDIAN(totalco2) AS totalco2_agg,
+	MEDIAN(hematocrit) AS hematocrit_agg,
+	MEDIAN(hemoglobin) AS hemoglobin_agg,
+	MEDIAN(inr) AS inr_agg,
+	MEDIAN(lactate) AS lactate_agg,
+	MEDIAN(platelets) AS platelets_agg,
+	MEDIAN(potassium) AS potassium_agg,
+	MEDIAN(ptt) AS ptt_agg,
+	MEDIAN(sodium) AS sodium_agg,
+	MEDIAN(wbc) AS wbc_agg,
+	MEDIAN(bands) AS bands_agg,
+	MEDIAN(alt) AS alt_agg,
+	MEDIAN(ast) AS ast_agg,
+	MEDIAN(alp) AS alp_agg,
+	MEDIAN(fio2) AS fio2_agg,
+	MEDIAN(rdw) AS rdw_agg,
+	MEDIAN(heartrate) AS heartrate_agg,
+	MEDIAN(respiratoryrate) AS respiratoryrate_agg,
+	MEDIAN(spo2) AS spo2_agg,
+	MEDIAN(sbp) AS sbp_agg,
+	MEDIAN(dbp) AS dbp_agg,
+	MEDIAN(map) AS map_agg,
+	MEDIAN(phosphate) AS phosphate_agg,
+	MEDIAN(ldh) AS ldh_agg,
+	MEDIAN(temperature) AS temperature_agg,
+	MAX(dopamine) AS dopamine_agg,
+	MAX(dobutamine) AS dobutamine_agg,
+	MAX(norepinephrine) AS norepinephrine_agg,
+	MAX(phenylephrine) AS phenylephrine_agg,
+	MAX(epinephrine) AS epinephrine_agg,
+	MAX(vasopressin) AS vasopressin_agg,
+	MAX(milrinone) AS milrinone_agg,
+	MAX(heparin) AS heparin_agg
+FROM
+	hr_dataset
+JOIN
+	hr_dataset_long
+USING
+	(patientunitstayid)
+GROUP BY
+	patientunitstayid'
+,drv="SQLite")
+
+```
+
+## Imputation
+
+```{r}
+# the following variables have more than 50% of the patients missing data, so we can't impute, therefore we are removing them
+
+hr_dataset_agg$totalco2_agg<-NULL
+hr_dataset_agg$ptt_agg<-NULL
+hr_dataset_agg$bands_agg<-NULL
+
+# median imputation for continuous columns
+# most frequent value for categorical columns
+impute.median <- function(x) replace(x, is.na(x), median(x, na.rm = TRUE))
+impute.mostfreq <- function(x) replace(x, is.na(x), as.data.frame(sort(table(x),decreasing=TRUE))[1,1] ) 
+
+# columns we want to median.impute contain the pattern 'agg'
+
+hr_dataset_agg[,grep('agg',names(hr_dataset_agg))]<-as.data.frame(apply(hr_dataset_agg[,grep('agg',names(hr_dataset_agg))],2, function(x) impute.median(x) ))
+
+hr_dataset_agg$vasopressor_bin<-impute.mostfreq(hr_dataset_agg$vasopressor_bin)
+
+```
+
+## Table 1 High Resolution Dataset model A
+
+```{r}
+vars_in_hr_model<-c("age_fixed","gender","ethnicity","numbedscategory","teachingstatus","region","dialysis_in_the_icu_bin","final_charlson_score","icd_shock","chf1","vasopressor_bin","hospitalmortality","albumin_agg","bilirubin_agg","bun_agg","calcium_agg","creatinine_agg","glucose_agg","bicarbonate_agg","hematocrit_agg","hemoglobin_agg","inr_agg","lactate_agg","platelets_agg","potassium_agg","sodium_agg","wbc_agg","alt_agg","ast_agg","alp_agg","fio2_agg","rdw_agg","heartrate_agg","respiratoryrate_agg","spo2_agg","sbp_agg","dbp_agg","map_agg","phosphate_agg","ldh_agg","temperature_agg","dopamine_agg","dobutamine_agg","norepinephrine_agg","phenylephrine_agg","epinephrine_agg","vasopressin_agg","milrinone_agg","heparin_agg")
+
+cat_variables<-rep(NA, length(vars_in_hr_model))
+stratifyby<-"dialysis_in_the_icu_bin"
+
+
+label(hr_dataset_agg$age_fixed)<-'Age'
+
+cont<-1
+for (i in 1:length(vars_in_hr_model) ) {
+  if ( n_distinct(hr_dataset_agg[vars_in_hr_model[i] ])<=10 ) {
+    print(i)
+    print(vars_in_hr_model[i])
+    print(names(hr_dataset_agg[vars_in_hr_model[i]]))
+    cat_variables[cont]<-names(hr_dataset_agg[vars_in_hr_model[i]])
+    cont<-cont+1
+  }
+}  
+
+cat_variables<-cat_variables[!is.na(cat_variables)]
+
+table1_base<-print(CreateTableOne(vars = vars_in_hr_model, strata = stratifyby, factorVars = cat_variables
+    ,data = hr_dataset_agg, addOverall=T),varLabels = T)
+
+# run this in console for html output, the code below uses kableExtra::
+
+table1_base %>%
+  kbl(caption = "Table 1 of base model" , align = "c") %>%
+  kable_classic_2(full_width = F, html_font = "Cambria")%>%
+  add_header_above(c(" "," ", 'dialysis_in_the_icu_bin' = 2," ", "" ))
+```

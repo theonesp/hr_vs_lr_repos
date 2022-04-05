@@ -1,163 +1,360 @@
 ---
 title: "02_model_training"
-author: "Miguel Armengol"
-date: "6/6/2019"
-output: html_document
+author: "Miguel Ángel Armengol"
+date: '`r format(Sys.Date(), "%B %d, %Y")`'
+output:
+  html_notebook:
+    code_folding: hide
+    number_sections: yes
+    theme: flatly
+    toc: yes
+    toc_float: yes
+
+knit: (function(inputFile, encoding) { rmarkdown::render(inputFile, encoding = encoding, output_file = paste0(substr(inputFile,1,nchar(inputFile)-4)," ",Sys.Date(),'.html')) })
 ---
+
 # Libraries
 
-```{r}
+```{r message=FALSE, warning=FALSE}
 library(summarytools)
 library(RPostgreSQL)
 library(dplyr)
 library(sqldf)
+#library(MatchIt)
+library(ggplot2)
+library(survey)
+library(tableone)
+library(sandwich)
+library(mgcv)
+library(lme4)
+library(table1)
 ```
 
+# Low resolution model
+
 ```{r}
-library(randomForest)
-library(boot)
-library(car)
+print('Patients in the dataset')
+n_distinct(hr_dataset$patientunitstayid)
 
-data(imports85)
-table(na.omit(imports85)$aspiration)
-table(na.omit(imports85)$numOfDoors)
+#checking there is not missingness in any variable
+table1( ~ hospitalmortality + age_fixed + gender + ethnicity + numbedscategory + teachingstatus + region + dialysis_in_the_icu_bin + apachescore + final_charlson_score + creat1_imp + icd_shock + vasopressor_bin_lr, data = hr_dataset)
 
-mod.rf<-randomForest(aspiration~numOfDoors+wheelBase+length+width+height, data=na.omit(imports85),ntree=1000,keep.forest=TRUE)
+low_res_model<-glm(hospitalmortality ~ 
+                  age_fixed
+                + gender
+                + ethnicity
+                
+                + dialysis_in_the_icu_bin
+                + apachescore
+                + final_charlson_score
+                + creat1_imp
+                + icd_shock
+                + vasopressor_bin_lr
+                , family=binomial
+                , data=hr_dataset)
+print('Patients included in the model')
+nobs(low_res_model)
 
-#partial dependence plot for numOfDoors (two or four)
-#note: n.pt is useful for continuous variables
-pdp<-boot::inv.logit(partialPlot(mod.rf,na.omit(imports85),numOfDoors)$y)
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(low_res_model), confint.default(low_res_model))),2))
 
-#odds ratio for aspiration = std
-
-#odds two cyclinder
-odds.2<- (pdp[2]/(1-pdp[2]))
-odds.4<- (pdp[1]/(1-pdp[1]))
-
-odds.2/odds.4  #1.74
+OR_table
 ```
 
-# Logistic Regression
+# Creating our dataset
 
 ```{r}
-mod_multiv<-glm(actualhospitalmortality ~ 
-rrt_bin+
-gender+
-age_fixed+
-ethnicity+
-hospitaldischargeyear+
-hospitaladmitsource+
-unittype+
-unitadmitsource+
-apacheadmissiondx+
-unabridgedunitlos+
-unabridgedhosplos+
-intubated_first_24h+
-aids+
-hepaticfailure+
-lymphoma+
-metastaticcancer+
-leukemia+
-immunosuppression+
-cirrhosis+
-diabetes+
-activetx+
-apachescore+
-final_charlson_score+
-mechvent_score+
-sofatotal
-,data=hr_dataset%>%select(
-rrt_bin,
-gender,
-age_fixed,
-ethnicity,
-hospitaldischargeyear,
-hospitaladmitsource,
-unittype,
-unitadmitsource,
-apacheadmissiondx,
-actualhospitalmortality,
-unabridgedunitlos,
-unabridgedhosplos,
-intubated_first_24h,
-aids,
-hepaticfailure,
-lymphoma,
-metastaticcancer,
-leukemia,
-immunosuppression,
-cirrhosis,
-diabetes,
-activetx,
-apachescore,
-final_charlson_score,
-mechvent_score,
-sofatotal)
- ,family = 'binomial'
- )
-OR_table<-as.data.frame(round(exp(cbind(OR=coef(mod_multiv), confint.default(mod_multiv))),2))
-```
+# we need a dataset with no missing values so we are subsetting the original one so it includes only the required variables for the Propensity score matching which actually never have missing values.
 
-
-# Random Forest
-
-```{r}
-library(randomForest)
-library(boot)
-library(car)
-
-hr_dataset$gender<-as.factor(hr_dataset$gender)
-hr_dataset$actualhospitalmortality<-as.numeric(hr_dataset$actualhospitalmortality)
-
-selected_data<-hr_dataset%>%select(
-gender,
-age_fixed,
-# ethnicity,
-# hospitaldischargeyear,
-# hospitaladmitsource,
-# unittype,
-# unitadmitsource,
-# apacheadmissiondx,
-actualhospitalmortality,
-# unabridgedunitlos,
-# unabridgedhosplos,
-# intubated_first_24h,
-# aids,
-# hepaticfailure,
-# lymphoma,
-# metastaticcancer,
-# leukemia,
-# immunosuppression,
-# cirrhosis,
-# diabetes,
-# activetx,
-# apachescore,
-# final_charlson_score,
-# mechvent_score,
-# sofatotal 
+hr_prop_score_dataset<-hr_dataset_long%>%dplyr::select(
+  patientunitstayid
+, age_fixed
+, gender
+, ethnicity
+, numbedscategory
+, teachingstatus
+, region
+, dialysis_in_the_icu_bin
+, apachescore
+, final_charlson_score
+, creat1_imp
+, icd_shock
+, vasopressor_bin_lr
+, hospitalmortality
+, albumin
+, bilirubin
+, bun
+, calcium
+, creatinine
+, glucose
+, bicarbonate
+, totalco2
+, hematocrit
+, hemoglobin
+, inr
+, lactate
+, platelets
+, potassium
+, ptt
+, sodium
+, wbc
+, bands
+, alt
+, ast
+, alp
+, fio2
+, rdw
+, heartrate
+, respiratoryrate
+, spo2
+, sbp
+, dbp
+, map
+, temperature
+, vasopressor_bin
+, dopamine
+, dobutamine
+, norepinephrine
+, phenylephrine
+, epinephrine
+, vasopressin
+#, milrinone # milrinone is almost completely missing and is confusing the model
+, heparin
 )
 
-mod.rf<-randomForest(actualhospitalmortality~
-gender+
-age_fixed
-,data=selected_data
-,ntree=1000
-,keep.forest=TRUE
-,class=T #it is a classification model
-)
-
-#partial dependence plot for numOfDoors (two or four)
-#note: n.pt is useful for continuous variables
-pdp<-boot::inv.logit(partialPlot(mod.rf,selected_data,numOfDoors)$y)
-
-#odds ratio for aspiration = std
-
-#odds two cyclinder
-odds.2<- (pdp[2]/(1-pdp[2]))
-odds.4<- (pdp[1]/(1-pdp[1]))
-
-odds.2/odds.4  #1.74
+saveRDS(hr_prop_score_dataset,"hr_prop_score_dataset.rds")
 ```
 
+# Summary
 
+```{r}
+df_for_summary<-as.data.frame(hr_prop_score_dataset)
+summarytools::view(dfSummary(df_for_summary))
+```
 
+# Random effect model
+
+## Data wrangling before modeling
+
+Some predictor variables are on very different scales: so we should rescale.
+
+### Log transforming
+
+We are log transforming
+
+```{r}
+hr_prop_score_dataset[,c("age_fixed" , "apachescore" , "final_charlson_score" , "creat1_imp" , "albumin" , "bilirubin" , "bun" , "calcium" , "creatinine" , "glucose" , "bicarbonate" , "totalco2" , "hematocrit" , "hemoglobin" , "inr" , "lactate" , "platelets" , "potassium" , "ptt" , "sodium" , "wbc" , "bands" , "alt" , "ast" , "alp" , "fio2" , "rdw" , "heartrate" , "respiratoryrate" , "spo2" , "sbp" , "dbp" , "map" , "temperature")]<-log(hr_prop_score_dataset[,c("age_fixed" , "apachescore" , "final_charlson_score" , "creat1_imp" , "albumin" , "bilirubin" , "bun" , "calcium" , "creatinine" , "glucose" , "bicarbonate" , "totalco2" , "hematocrit" , "hemoglobin" , "inr" , "lactate" , "platelets" , "potassium" , "ptt" , "sodium" , "wbc" , "bands" , "alt" , "ast" , "alp" , "fio2" , "rdw" , "heartrate" , "respiratoryrate" , "spo2" , "sbp" , "dbp" , "map" , "temperature")])
+```
+
+### Mean centering and standardizing
+
+We are re-scaling and and mean centering all mets. After this process is complete they all should have a mean of 0 and an SD of 1.
+
+```{r}
+scale_centered_scaled<-function(x){
+  scaled_centered <- scale(x, center=T, scale=T)
+  return(scaled_centered)
+}
+
+hr_prop_score_dataset[,c("age_fixed" , "apachescore" , "final_charlson_score" , "creat1_imp" , "albumin" , "bilirubin" , "bun" , "calcium" , "creatinine" , "glucose" , "bicarbonate" , "totalco2" , "hematocrit" , "hemoglobin" , "inr" , "lactate" , "platelets" , "potassium" , "ptt" , "sodium" , "wbc" , "bands" , "alt" , "ast" , "alp" , "fio2" , "rdw" , "heartrate" , "respiratoryrate" , "spo2" , "sbp" , "dbp" , "map" , "temperature")]<-scale_centered(hr_prop_score_dataset[,c("age_fixed" , "apachescore" , "final_charlson_score" , "creat1_imp" , "albumin" , "bilirubin" , "bun" , "calcium" , "creatinine" , "glucose" , "bicarbonate" , "totalco2" , "hematocrit" , "hemoglobin" , "inr" , "lactate" , "platelets" , "potassium" , "ptt" , "sodium" , "wbc" , "bands" , "alt" , "ast" , "alp" , "fio2" , "rdw" , "heartrate" , "respiratoryrate" , "spo2" , "sbp" , "dbp" , "map" , "temperature")])
+
+```
+
+# Base Model A
+
+Low resolution (wide format).
+
+```{r}
+log_reg <- glm( hospitalmortality ~ 
+                  age_fixed
+                + gender
+                + ethnicity 
+                + dialysis_in_the_icu_bin
+                + final_charlson_score
+                + icd_shock
+                + chf1
+                ,family = 'binomial'
+                , data=hr_dataset)
+
+summary(log_reg)
+
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(log_reg), confint.default(log_reg))),2))
+
+OR_table
+```
+
+# Base Model B
+
+Low resolution (wide format).
+
+```{r}
+log_reg <- glm(   hospitalmortality ~ 
+                  age_fixed
+                + gender
+                + ethnicity
+                + numbedscategory 
+                + teachingstatus
+                + region 
+                + dialysis_in_the_icu_bin
+                + final_charlson_score
+                + icd_shock
+                + chf1
+                , family='binomial'
+                , data=hr_dataset)
+
+summary(log_reg)
+
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(log_reg), confint.default(log_reg))),2))
+
+OR_table
+```
+
+# HR Model A
+
+Addresses all high resolution variables (not available in the low resolution model) but in an aggregated fashion.
+
+```{r}
+log_reg <- glm( hospitalmortality ~ . - patientunitstayid 
+                , family='binomial'
+                , data=hr_dataset_agg)
+
+summary(log_reg)
+
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(log_reg), confint.default(log_reg))),2))
+
+OR_table
+```
+
+# HR Model B
+
+Time Series.
+
+**Not for this project.**
+
+# Causal inference
+
+Ref.: <https://www.youtube.com/watch?v=P2LArUuzmso>
+
+## Propensity Score - logistic regression
+
+```{r}
+# Fit a propensity score model: logistic regression
+ps_model <- glm(dialysis_in_the_icu_bin ~ 
+                  apachescore
+                + age_fixed
+                + gender
+                + final_charlson_score
+                + ethnicity
+                + creat1_imp
+                , family=binomial()
+                , data=hr_prop_score_dataset)
+
+summary(ps_model)
+
+OR_table<-as.data.frame(round(exp(cbind(OR=coef(ps_model), confint.default(ps_model))),2))
+
+OR_table
+
+# Value of propensity score for each subject
+
+pscore<-ps_model$fitted.values
+
+treatment_pscore<-cbind(hr_prop_score_dataset%>%select(dialysis_in_the_icu_bin),pscore)
+
+ggplot(treatment_pscore, aes(x=pscore, fill = dialysis_in_the_icu_bin)) + 
+  geom_histogram(alpha = 0.5,position="identity") +
+  scale_fill_manual(name="RRT",values=c("#1abc9c","#f1c40f"),labels=c("No (Control)","Yes (Treated)"))+theme_minimal()
+```
+
+## Inverse probability weighting
+
+```{r}
+# create weight
+hr_prop_score_dataset<-hr_prop_score_dataset%>%mutate(
+  weight=if_else(dialysis_in_the_icu_bin==1
+                 ,1/(pscore)
+                 ,1/(1-pscore))
+)
+
+ggplot(hr_prop_score_dataset, aes(x = weight, fill = dialysis_in_the_icu_bin)) +
+   geom_density(alpha = 0.5, colour = "grey50") +
+   geom_rug() +
+   scale_x_log10(breaks = c(1, 5, 10, 20, 40)) +
+   ggtitle("Distribution of inverse probability weights")+ scale_fill_manual(name="RRT",values=c("#1abc9c","#f1c40f"),labels=c("No (Control)","Yes (Treated)"))+theme_minimal()
+
+# apply weights to data
+weighted_data<-svydesign(ids = ~ patientunitstayid, data = hr_prop_score_dataset,
+                         weights = ~weight
+                         )
+
+# weighted table 1
+
+weighedtable<- svyCreateTableOne( vars= c("apachescore", "age_fixed","gender","final_charlson_score","ethnicity","creat1_imp"), strata = "dialysis_in_the_icu_bin", data = weighted_data, test = F)
+
+# weighted table 1 wih standarized mean differences (SMD)
+
+as.data.frame(print(weighedtable,smd=T))
+```
+
+In tableone: Ignore SD and sample sizes, ONLY SMD is reliable
+
+## Marginal structural modeling
+
+### Relative risk with CI
+
+```{r warning=FALSE}
+# Obtaining causal relative risk. Weighed GLM
+
+glm_model_rr<-glm(
+  hospitalmortality ~ 
+  dialysis_in_the_icu_bin # treatment is the only exposure now
+, weights = weight  
+, family = binomial(link = log) # we are using the log link since we are interested in the relative risk
+, data= hr_dataset
+)
+
+# summary of the glm_model_rr final model
+# beta Inverse probability weighting
+betaiptw<-coef(glm_model_rr)
+
+# to properly account for weighting, we are going to use asymptotic (sandwich) variance
+
+SE<-sqrt(diag(vcovHC(glm_model_rr,type = "HC0"))) # getting the standard error.
+
+# we get point estimate and CI for relative risk
+
+beta_causal_relative_risk<-exp(betaiptw[2]) # we need to exponientiate since we logged before
+lCI<-exp(betaiptw[2]-1.96*SE[2])
+uCI<-exp(betaiptw[2]+1.96*SE[2])
+
+as.data.frame(cbind(beta_causal_relative_risk, lCI, uCI))
+```
+
+### Risk difference with CI
+
+```{r warning=FALSE}
+# Obtaining Obtaining risk difference with CI
+
+glm_model_diff<-glm(
+  hospitalmortality ~ 
+  dialysis_in_the_icu_bin # treatment is the only exposure now
+, weights = weight  
+, family = binomial(link = 'identity') # we are using the identity link since we are interested in isk difference
+, data= hr_dataset
+)
+
+# summary of the glm_model_diff final model
+# beta Inverse probability weighting
+betaiptw<-coef(glm_model_diff)
+
+# to properly account for weighting, we are going to use asymptotic (sandwich) variance
+
+SE<-sqrt(diag(vcovHC(glm_model_diff,type = "HC0"))) # getting the standard error.
+
+# we get point estimate and CI for relative risk
+
+beta_risk_difference<-exp(betaiptw[2]) # we need to exponientiate since we logged before
+lCI<-exp(betaiptw[2]-1.96*SE[2])
+uCI<-exp(betaiptw[2]+1.96*SE[2])
+
+as.data.frame(cbind(beta_risk_difference, lCI, uCI))
+```
